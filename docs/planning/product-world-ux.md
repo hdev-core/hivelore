@@ -18,6 +18,35 @@ HiveLore is a collaborative storytelling and worldbuilding platform built around
 - The MVP should feel usable without advanced maps, councils, NFTs, or complex reward analytics.
 - Readers should understand a world quickly before they decide to contribute.
 
+## 1.2 Glossary / domain model
+
+| Term | Definition |
+| --- | --- |
+| AI Warning | A visible label on a proposal when the AI Check finds a meaningful contradiction or continuity risk. |
+| Alternate Timeline | A readable story branch or lore path that is accepted as non-main continuity instead of becoming canon. |
+| Canon | The official continuity of a world: entries and story events accepted through the world's approval process. |
+| Canon lore | Any approved lore entry that is part of canon, including characters, locations, factions, events, artifacts, quests, and story chapters. |
+| Canon status | The workflow state of a lore entry or proposal, such as Draft, Proposal, AI Warning, Under Review, Canon, Rejected, Alternate Timeline, or Archived. |
+| Canon voting | The community decision process that determines whether a proposal becomes canon, needs revision, is rejected, or becomes alternate timeline content. |
+| Canonization | The moment a proposal is approved and becomes part of canon. |
+| Contribution | Any user-created lore, story, edit, comment, vote, or worldbuilding action that adds value to a world. |
+| Draft | Private or unfinished content that the creator can edit before submitting it as a proposal. |
+| Entity model | The shared product and technical structure that defines world objects, their fields, and their relationships. |
+| Lore entity | A structured world object, such as a character, city/kingdom, faction, quest, historical event, artifact, or story contribution. |
+| Lore graph | The network of lore entities and relationships that lets readers explore how characters, places, events, factions, quests, and stories connect. |
+| LoreEntry | The reusable base object for all structured lore entities in the product and technical model. |
+| Main continuity | The primary accepted timeline and facts of a world; this is the same practical idea as canon. |
+| MVP | The minimum viable product scope needed to prove HiveLore's core loop before advanced features are added. |
+| Relationship linking | The act of connecting one lore entity to another through explicit relationships such as belongs to, ruled by, caused by, enemy of, or continuation of. |
+| Reputation | A visible measure of a user's contribution quality and community trust, used for recognition and future sorting or governance features. |
+| Story branch | A continuation path from an existing story or lore entry that may become canon or remain an alternate timeline. |
+| Story chapter | A narrative contribution that tells part of a world's story and links to relevant canon lore such as characters, locations, events, or factions. |
+| Under Review | A proposal state used when voting is active, attention is high, or a proposal is close to a decision threshold. |
+| World Bible | The contributor-facing guide that defines a world's rules, tone, writing style, continuity constraints, and accepted foundation lore. |
+| World Codex | The product-facing reference area that surfaces the World Bible, canon highlights, and structured lore guidance inside the UI. |
+| World Hub | The main page for a fictional world, showing its summary, seed, bible/codex preview, canon entries, proposals, and contribution actions. |
+| World Seed | The structured starting brief for a world: name, genre, tone, core conflict, first location, first characters, first factions, and first event. |
+| World-builder | A user role focused on creating or organizing world structure, starter lore, rules, and contribution direction. |
 
 # 2. Core lore entities and relationships
 
