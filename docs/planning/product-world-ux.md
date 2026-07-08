@@ -210,3 +210,180 @@ Reputation should make good contributors visible without making the MVP too comp
 
 | Success outcome<br>New users understand the world without reading every entry manually. |
 | --- |
+
+
+# 8. Wireframes and key screen specs
+
+These low-fidelity wireframes align the main product flow before visual design. Each image is paired with the required screen content and the user outcome it should support.
+
+## 8.1 World Hub Screen
+
+![World Hub Screen](images/wireframes/1.%20World%20Hub%20Wireframe.png)
+
+Main page for one fictional world. It should help a reader understand the world's identity, canon health, active proposals, and next actions without needing to open several pages first.
+
+Purpose: Main page for one fictional world.
+
+Must include:
+- Top navigation with HiveLore logo placeholder, search bar, and Hive login/profile area.
+- World title, genre, tone, and short summary.
+- World Seed section.
+- World Codex preview section.
+- Canon status overview.
+- Tabs or filters: Characters, Cities/Kingdoms, Factions, Quests, Historical Events, Stories, Artifacts.
+- Featured canon entries.
+- Pending proposals needing votes.
+- CTA buttons: Create Lore Entry, Write Story Contribution, View Timeline, View Map.
+- Small AI guide panel: Ask about this world.
+
+UX goal: Readers should understand the world in under one minute and know whether to read, vote, or contribute.
+
+## 8.2 Lore Entity Page
+
+![Lore Entity Page](images/wireframes/2.%20Lore%20Entity%20Wireframe.png)
+
+Detail page for one lore object, such as a character, city, faction, quest, historical event, story, or artifact. The page should make the entry readable on its own while exposing how it connects to the wider lore graph.
+
+Purpose: Detail page for one lore entity.
+
+Must include:
+- Entity title and type.
+- Canon status badge: Draft, Proposal, AI Warning, Under Review, Canon, Rejected, Alternate Timeline, Archived.
+- Short summary.
+- Main description/body area.
+- Metadata panel: creator, world, created date, tags.
+- Connected lore section showing relationships like belongs to, ruled by, enemy of, caused by, continuation of.
+- Related entries list.
+- Contribution history.
+- CTA buttons: Extend this lore, Suggest edit, Start story from this, Vote on proposal.
+
+UX goal: Any entity can become a clear reading endpoint and a natural starting point for new contributions.
+
+## 8.3 Contribution / Story Editor Screen
+
+![Contribution / Story Editor Screen](images/wireframes/3.%20Editor%20Wireframe.png)
+
+Creation screen for new lore proposals and story continuations. The editor should give writers structure without making the writing process feel blocked by forms.
+
+Purpose: User creates a new lore proposal or story continuation.
+
+Must include:
+- Entry type selector.
+- Title field.
+- Structured fields depending on type.
+- Rich text editor placeholder.
+- Relationship picker to connect the contribution to existing canon lore.
+- Tags field.
+- AI consistency checker panel.
+- AI suggestions panel.
+- Buttons: Save Draft, Run AI Check, Submit Proposal.
+- Warning state area for contradictions.
+- Checkbox or confirmation: Submit with AI Warning label, if the user insists.
+
+UX goal: Writers can create connected lore, run consistency checks, and submit proposals with clear consequences.
+
+## 8.4 Canon Vote Screen
+
+![Canon Vote Screen](images/wireframes/4.%20Canon%20Vote%20Wireframe.png)
+
+Community decision page for whether a proposal becomes canon, needs revision, gets rejected, or branches into an alternate timeline. The screen should make the voting rule and AI report visible before users act.
+
+Purpose: Community votes on whether a proposal becomes canon.
+
+Must include:
+- Proposal title, creator, type, and world.
+- Current canon status.
+- AI consistency report summary.
+- Warning label if contradiction exists.
+- Vote progress bar showing approval percentage.
+- Minimum votes requirement area.
+- Voting buttons: Approve, Request Revision, Reject, Mark as Alternate Timeline.
+- Comments/discussion section.
+- Canon decision panel explaining percentage approval plus AI check.
+- Result states: Canon Approved, Rejected, Alternate Timeline, Needs More Votes.
+
+UX goal: Voters can make informed decisions and understand why the final canon outcome happened.
+
+## 8.5 Timeline / Map Screen
+
+![Timeline / Map Screen](docs/planning/wireframes/Map%20Wireframe.png)
+
+Exploration screen for world history and geography. Timeline and map modes should share filters so users can move between when lore happened and where it happened.
+
+Purpose: Explore world history and geography.
+
+Must include:
+- Toggle tabs: Timeline / Map.
+- Timeline view with chronological events.
+- Event cards connected to characters, factions, locations, and quests.
+- Map placeholder with location pins.
+- Sidebar filters: canon only, proposals, alternate timelines, factions, characters, events.
+- Selected item details panel.
+- CTA buttons: Create event, Add location, Connect to lore.
+
+UX goal: Readers can understand the world's chronology and geography without losing the links back to canon entries.
+
+## 8.6 User Profile Screen
+
+![User Profile Screen](images/wireframes/6.%20User%20Profile%20Wireframe.png)
+
+Hive identity and reputation page for a contributor. The profile should make creative credit, canon contribution, voting activity, and reward-adjacent activity easy to scan.
+
+Purpose: Show Hive identity, contributions, reputation, and rewards activity.
+
+Must include:
+- Hive username and avatar placeholder.
+- Role badges: Reader, Contributor/Writer, World-Builder, Curator/Moderator, Founder.
+- Reputation score.
+- Contribution stats: canon entries, proposals, votes received, stories written.
+- Reputation loop summary: quality contribution -> positive votes -> canon approval -> reputation gain -> more visibility.
+- User's worlds.
+- User's lore entries.
+- User's pending proposals.
+- Hive reference/reward activity placeholder.
+- Tabs: Contributions, Votes, Reputation, Rewards, Worlds.
+
+UX goal: Writers get visible credit and a clear reason to keep making high-quality contributions.
+
+## 8.7 Create World Screen
+
+![Create World Screen](images/wireframes/7.%20Create%20World%20Wireframe.png)
+
+Founder setup page for the first canon layer of a world. It should guide founders toward a useful World Seed and Codex without implying they permanently control all canon decisions.
+
+Purpose: Founder starts a new world.
+
+Must include:
+- World name field.
+- Genre field.
+- Tone field.
+- Main conflict field.
+- World rules field.
+- Starting location field.
+- First characters field.
+- First factions field.
+- First historical event field.
+- World Seed summary.
+- World Codex editor placeholder.
+- Buttons: Save Draft World, Create World.
+- Note: Founder creates the starting canon, but later canon decisions depend on community voting and AI checks.
+
+UX goal: Founders can publish enough starting structure for other writers to contribute confidently.
+
+## 8.8 Browse Worlds Screen
+
+![Browse Worlds Screen](images/wireframes/8.%20Browse%20Worlds%20Wireframe.png)
+
+Discovery page for exploring fictional worlds across HiveLore. The page should make it easy to compare worlds by genre, activity, founder, canon size, and proposal activity.
+
+Purpose: Explore multiple fictional worlds.
+
+Must include:
+- Search and filter bar.
+- World cards with title, genre, tone, founder, number of canon entries, and number of active proposals.
+- Sort options: newest, most active, highest reputation, most canon entries.
+- CTA button: Create New World.
+- Quick filters: fantasy, sci-fi, political fantasy, dark fantasy, mystery, adventure.
+
+UX goal: New and returning users can quickly find active worlds worth reading, voting on, or joining.
+
