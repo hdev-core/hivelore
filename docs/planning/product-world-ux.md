@@ -387,3 +387,50 @@ Must include:
 
 UX goal: New and returning users can quickly find active worlds worth reading, voting on, or joining.
 
+# 9. V1 out-of-scope list
+
+- Advanced interactive maps with custom fantasy geography editing.
+- Full AI lore chatbot with deep natural-language Q&A over every world.
+- Political/military AI world engine, war reports, spy dispatches, and simulation-style outputs.
+- NFT ownership, collectible lore artifacts, or character ownership mechanics.
+- Reputation-weighted voting and complex elected councils.
+- Full reward analytics dashboard and advanced beneficiary split configuration.
+- Mobile app; v1 should be responsive web only.
+- Real-time collaborative editing inside the story editor.
+- Private worlds, paid worlds, or invite-only communities unless time remains.
+- Complex moderation appeal system; start with simple report/review actions.
+
+| Why cut these?<br>The first version must prove the core loop: create world -> create connected lore -> AI check -> community vote -> canon status -> profile recognition. Anything that does not support that loop should wait. |
+| --- |
+
+# 10. Prioritized backlog
+
+Priorities: P0 = must have for MVP demo, P1 = strong v1 feature if time allows, P2 = future/advanced. Acceptance criteria are written in a product-friendly way so they can become development tasks later.
+
+| ID | Feature | Priority | User story | Acceptance criteria |
+| --- | --- | --- | --- | --- |
+| HL-01 | Hive login | P0 | As a user, I can log in with my Hive account so my identity is tied to contributions. | Login button signs request; profile shows Hive username; no password stored. |
+| HL-02 | World Hub | P0 | As a reader, I can browse a world and understand its tone, rules, and canon entries. | World page shows summary, World Bible preview, stats, filters, active proposals. |
+| HL-03 | Create World Seed | P0 | As a founder, I can create the structured starting foundation for a world. | Form includes name, genre, tone, conflict, first location, characters, factions, event. |
+| HL-04 | World Bible Editor | P0 | As a founder, I can write a rich guide for contributors. | Rich text saved; visible on hub; referenced by AI check. |
+| HL-05 | Create Lore Entry | P0 | As a writer, I can create characters, city/kingdoms, factions, quests, events, and stories. | Each type has structured fields and shared LoreEntry metadata. |
+| HL-06 | Relationship Linking | P0 | As a writer, I can link new lore to existing canon. | Entry creation requires/selects related entries; relation types stored and displayed. |
+| HL-07 | AI Consistency Check | P0 | As a writer, I see contradictions before submitting. | AI report shows severity, explanation, sources, suggested fixes. |
+| HL-08 | AI Warning Label | P0 | As a voter, I can clearly see if a proposal conflicts with canon. | Warning badge appears on proposal cards and vote page. |
+| HL-09 | Proposal Submission | P0 | As a writer, I can submit my draft for community review. | Draft becomes proposal; appears in active vote list. |
+| HL-10 | Canon Voting | P0 | As a logged-in user, I can vote on proposals. | Vote options save once per user; approval percentage is calculated. |
+| HL-11 | Canon Status Workflow | P0 | As the platform, I can move proposal through statuses. | Statuses include draft, proposal, warning, under review, canon, rejected, alternate, archived. |
+| HL-12 | Entity Page | P0 | As a reader, I can view one lore entry and its connected lore. | Shows body, status, creator, related entries, stories, extend button. |
+| HL-13 | Basic Profile | P0 | As a user, I can see my Hive identity, contributions, votes, and reputation. | Profile lists contribution counts, canonized entries, badges. |
+| HL-14 | Comments on Proposals | P1 | As a community member, I can leave feedback before voting ends. | Comments appear on vote screen; users can discuss revisions. |
+| HL-15 | Basic Search / Filters | P1 | As a reader, I can filter lore by type, status, tag, and world. | Search returns matching entries with status/type chips. |
+| HL-16 | Timeline List | P1 | As a reader, I can see historical events in order. | Timeline shows events with dates/eras and linked entries. |
+| HL-17 | Map Placeholder | P1 | As a reader, I can view locations in a simple map/list. | Locations display coordinates/region notes; advanced map deferred. |
+| HL-18 | Alternate Timeline Support | P1 | As a writer, I can create a branch that does not break canon. | Story can be marked branch_of; status Alternate Timeline visible. |
+| HL-19 | Hive Post Linking | P1 | As a canon contributor, I can link or publish approved content to Hive. | Canon content stores author/permlink/metadata reference. |
+| HL-20 | Moderation Reports | P1 | As a user, I can report spam or harmful content. | Curator queue shows reports and actions. |
+| HL-21 | AI Lore Q&A | P2 | As a newcomer, I can ask questions about a world. | AI answers with source lore references. |
+| HL-22 | Advanced Reputation Weighted Voting | P2 | As a world community, trusted users may have more influence. | Weighted rules configurable and transparent. |
+| HL-23 | Reward Analytics | P2 | As a contributor, I can see Hive reward activity. | Dashboard tracks Hive-linked posts and beneficiary split. |
+| HL-24 | World Councils | P2 | As a mature world, the community can elect stewards. | Council roles and votes are configurable. |
+| HL-25 | Advanced MapLibre / Leaflet Map | P2 | As a reader, I can explore an interactive world map. | Map pins, filters, routes, regions, and location pages. |
