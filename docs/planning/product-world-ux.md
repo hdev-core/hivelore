@@ -91,3 +91,25 @@ Figure 2. Canon workflow. A proposal can become canon when it passes AI consiste
 | Duplicate lore | Curator can merge, archive, or request revision. | Example: two users create same kingdom with conflicting ruler. |
 | Community accepts contradiction intentionally | Allowed as canon only if warning is visible and vote threshold passes. | Example: resurrection arc is accepted and becomes new canon event. |
 
+# 5. Reputation system
+
+![Reputation Loop](images/Reputation%20Loop.png)
+
+Reputation should make good contributors visible without making the MVP too complex. For v1, reputation should mostly be profile recognition and sorting. Weighted voting can be future scope once abuse controls are stronger.
+
+| Reputation type | What it measures | MVP scoring idea |
+| --- | --- | --- |
+| Writer Reputation | Quality of stories and lore proposals. | Canonized contribution +25; approved proposal +10; high approval ratio +5; repeated rejected spam -10. |
+| World-builder Reputation | Ability to create useful connected world structures. | World reaches 10 canon entries +20; high contributor retention +15; clear World Bible +10. |
+| Curator Reputation | Helpful governance and moderation quality. | Resolved reports +5; helpful review accepted by creator +3; abusive moderation -20. |
+| Community Reputation | Healthy participation as reader/voter/commenter. | Helpful comments +2; accurate flags +3; vote brigading or spam -15. |
+
+## 5.1 Levels and profile badges
+
+| Score range | Level | Meaning |
+| --- | --- | --- |
+| 0-49 | New Scribe | New user; can read, vote, and submit proposals. |
+| 50-149 | Lore Crafter | Several accepted contributions; profile badge. |
+| 150-399 | Canon Builder | Trusted contributor with multiple canonized entries. |
+| 400+ | World Steward | High-quality contributor; may be nominated for curator-style duties in future. |
+
