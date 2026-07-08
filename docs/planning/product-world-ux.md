@@ -113,3 +113,25 @@ Reputation should make good contributors visible without making the MVP too comp
 | 150-399 | Canon Builder | Trusted contributor with multiple canonized entries. |
 | 400+ | World Steward | High-quality contributor; may be nominated for curator-style duties in future. |
 
+# 6. Core features and MVP cut
+
+| Feature | MVP decision | Reason |
+| --- | --- | --- |
+| Hive login | MVP | Required because product is built around Hive identity. |
+| World browsing and World Hub | MVP | Users need to discover worlds and understand them quickly. |
+| World Seed + World Bible creation | MVP | This is the foundation for every world and for AI consistency checks. |
+| Lore entity creation | MVP | Support core types: Character, City/Kingdom, Faction, Quest, Historical Event, Story/Contribution. |
+| Relationship linking | MVP | Required to create a lore graph instead of isolated posts. |
+| Contribution editor | MVP | Needed for writers to submit structured content and stories. |
+| AI consistency check | MVP | Core differentiator; warns before voting. |
+| Canon voting | MVP | Core governance loop. |
+| Basic reputation profile | MVP | Gives writers recognition and shows contribution history. |
+| Comments / feedback | MVP light | Needed around proposals and votes, but can be simple. |
+| Search and filters | MVP light | Basic filters by world/type/status/tags. Advanced graph search later. |
+| Timeline | V1 after MVP | Useful but can start as simple chronological list. |
+| Map | V1 after MVP | Start as placeholder/list of locations; advanced interactive map later. |
+| Hive posting/linking | MVP or early V1 | Canon or featured content should be linkable to Hive posts; full streamer can be later. |
+| Rewards dashboard | Future | Rewards are opportunity-based and can be added after core loop works. |
+| World councils / elected stewards | Future | Too complex for MVP governance. |
+| Advanced AI lore chatbot | Future | Basic AI summaries can exist, full Q&A can come after structured lore grows. |
+| NFT collectibles | Future | Not needed to prove product value. |
