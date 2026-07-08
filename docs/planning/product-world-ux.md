@@ -18,6 +18,7 @@ HiveLore is a collaborative storytelling and worldbuilding platform built around
 - The MVP should feel usable without advanced maps, councils, NFTs, or complex reward analytics.
 - Readers should understand a world quickly before they decide to contribute.
 
+
 # 2. Core lore entities and relationships
 
 The entity model should be shared with the technical architecture track. Product/design should define what each entity means and how users experience it; technical track should translate it into database tables, APIs, and Hive metadata.
@@ -136,7 +137,6 @@ Reputation should make good contributors visible without making the MVP too comp
 | Advanced AI lore chatbot | Future | Basic AI summaries can exist, full Q&A can come after structured lore grows. |
 | NFT collectibles | Future | Not needed to prove product value. |
 
-
 # 7. Primary user journeys
 
 ## Journey A - Founder creates a world
@@ -210,7 +210,6 @@ Reputation should make good contributors visible without making the MVP too comp
 
 | Success outcome<br>New users understand the world without reading every entry manually. |
 | --- |
-
 
 # 8. Wireframes and key screen specs
 
@@ -386,7 +385,7 @@ Must include:
 - Quick filters: fantasy, sci-fi, political fantasy, dark fantasy, mystery, adventure.
 
 UX goal: New and returning users can quickly find active worlds worth reading, voting on, or joining.
-
+<br>
 # 9. V1 out-of-scope list
 
 - Advanced interactive maps with custom fantasy geography editing.
@@ -402,7 +401,7 @@ UX goal: New and returning users can quickly find active worlds worth reading, v
 
 | Why cut these?<br>The first version must prove the core loop: create world -> create connected lore -> AI check -> community vote -> canon status -> profile recognition. Anything that does not support that loop should wait. |
 | --- |
-
+<br>
 # 10. Prioritized backlog
 
 Priorities: P0 = must have for MVP demo, P1 = strong v1 feature if time allows, P2 = future/advanced. Acceptance criteria are written in a product-friendly way so they can become development tasks later.
