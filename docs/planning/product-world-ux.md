@@ -305,7 +305,7 @@ UX goal: Voters can make informed decisions and understand why the final canon o
 
 ## 8.5 Timeline / Map Screen
 
-![Timeline / Map Screen](docs/planning/wireframes/Map%20Wireframe.png)
+![Timeline / Map Screen](images/wireframes/5.%20Map%20Wireframe.png)
 
 Exploration screen for world history and geography. Timeline and map modes should share filters so users can move between when lore happened and where it happened.
 
