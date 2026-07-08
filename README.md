@@ -4,7 +4,20 @@
 
 ## Overview
 
-HiveLore enables communities to collaboratively build fictional worlds instead of isolated stories. Founders create a World Seed and World Bible, contributors expand the world through proposals, AI checks for consistency, and the community decides what becomes canon. Approved content is permanently published on Hive.
+HiveLore enables communities to collaboratively build fictional worlds instead of isolated stories. Founders create a **World Seed** and **World Bible**, contributors submit **Proposals** to expand or refine the world, AI evaluates submissions for consistency, and the community determines what becomes **Canon**. Approved content is permanently published on the Hive blockchain.
+
+---
+
+# Core Concepts
+
+| Term | Definition |
+|------|------------|
+| **World Seed** | The foundational concept of a fictional world, defining its premise, genre, and creative direction. |
+| **World Bible** | The authoritative reference defining the world's rules, history, locations, characters, and other canonical knowledge. |
+| **Proposal** | A contributor-submitted request to add, modify, or expand the World Bible or canon. |
+| **Canon** | Content officially approved through HiveLore's governance process and published on the Hive blockchain. |
+| **Canon Lore** | An approved unit of worldbuilding, such as a character, location, faction, event, artifact, or historical record. |
+| **Story Chapter** | A narrative set within an established world that builds upon existing canon without redefining it. |
 
 ## Goals
 
