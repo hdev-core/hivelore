@@ -54,6 +54,8 @@ The product can describe roles in user language, while the backend can implement
 
 # 4. Canon voting model and branching lore
 
+![Canon Voting Model](images/Canon%20Voting%20Model.png)
+
 Figure 2. Canon workflow. A proposal can become canon when it passes AI consistency visibility and community approval, or remain readable as an alternate timeline if it conflicts with main canon
 
 ## 4.1 Canon status definitions
@@ -88,3 +90,4 @@ Figure 2. Canon workflow. A proposal can become canon when it passes AI consiste
 | Branching continuation | Proposal can be marked Branch of an existing story. | Community can vote one branch into main canon, others stay as alternate. |
 | Duplicate lore | Curator can merge, archive, or request revision. | Example: two users create same kingdom with conflicting ruler. |
 | Community accepts contradiction intentionally | Allowed as canon only if warning is visible and vote threshold passes. | Example: resurrection arc is accepted and becomes new canon event. |
+
