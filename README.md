@@ -4,32 +4,38 @@
 
 ## Overview
 
-HiveLore enables communities to collaboratively build fictional worlds instead of isolated stories. Founders create a **World Seed** and **World Bible**, contributors submit **Proposals** to expand or refine the world, AI evaluates submissions for consistency, and the community determines what becomes **Canon**. Approved content is permanently published on the Hive blockchain.
+HiveLore enables communities to collaboratively build fictional worlds instead of isolated stories. Founders create a **World Seed** and **World Bible**, contributors submit **Proposals** to expand or refine the world, AI evaluates submissions for consistency, and the community determines which proposals are approved for publication. Contributors publish approved content to the Hive blockchain, where it becomes official **Canon**.
 
 ---
 
-# Core Concepts and Principles
+# Glossary
 
 | Term | Definition |
 |------|------------|
 | **World Seed** | The foundational concept of a fictional world, defining its premise, genre, and creative direction. |
-| **World Bible** | The authoritative reference defining the world's rules, history, locations, characters, and other canonical knowledge. |
-| **Proposal** | A contributor-submitted request to add, modify, or expand the World Bible or canon. |
-| **Canon** | Content officially approved through HiveLore's governance process and published on the Hive blockchain. |
+| **World Bible** | The authoritative reference describing the world's rules, history, characters, locations, factions, and other canonical knowledge. |
+| **Proposal** | A contributor-submitted request to add, modify, or expand the World Bible or existing lore. |
+| **Approved Proposal** | A proposal that has passed community governance and is authorized for publication, but is not yet canonical. |
+| **Canon** | Content that has been approved, published to the Hive blockchain, and indexed by HiveLore. |
 | **Canon Lore** | An approved unit of worldbuilding, such as a character, location, faction, event, artifact, or historical record. |
 | **Story Chapter** | A narrative set within an established world that builds upon existing canon without redefining it. |
 
+---
+
+# Core Principles
+
 - Hive is the immutable public record.
 - PostgreSQL is the indexed application database.
-- Canon is determined by community governance.
+- Canon is determined through community governance and finalized by on-chain publication.
 - Hive rewards determine financial incentives.
-- AI assists but never decides canon.
+- AI assists but never determines canon.
 - Only approved content is published on-chain.
-- MVP runs on free-tier infrastructure.
+- Contributors remain the on-chain authors of their work.
+- The MVP targets free-tier infrastructure.
 
 ---
 
-## Goals
+# Goals
 
 - Collaborative worldbuilding
 - Transparent canon governance
@@ -48,17 +54,17 @@ Client (Next.js + React)
           ▼
      Fastify API
      │    │    │
-     │    │    └── AI Services
+     │    │    └── AI Consistency Service
      │    │
      │    ├──── PostgreSQL
      │    │
-     │    └──── WAX (@hiveio/wax)
+     │    └──── WAX + Hive Keychain / HiveSigner
      │
      ▼
 Hive Blockchain
      ▲
      │
- HAF Indexer
+ HAF / Hive Indexer
      │
      ▼
 PostgreSQL
@@ -72,11 +78,11 @@ PostgreSQL
 
 - Next.js
 - React
+- TanStack Query
+- TipTap
 - Hive Keychain
 - HiveSigner
 - @hiveio/wax
-- TanStack Query
-- TipTap
 
 Modern TypeScript stack providing secure Hive authentication, efficient data fetching, and a rich editing experience.
 
@@ -84,29 +90,31 @@ Modern TypeScript stack providing secure Hive authentication, efficient data fet
 
 - Node.js
 - Fastify
+- Prisma ORM
 
-Responsible for authentication, governance, AI integration, publishing, indexing, moderation, and REST APIs.
+Responsible for authentication, governance, AI integration, indexing, moderation, and REST APIs.
 
 ## Database
 
 - PostgreSQL
-- Prisma ORM
 
 Stores drafts, proposals, AI reports, relationships, search indexes, moderation data, sessions, analytics, and indexed blockchain metadata.
 
-## Hosting
+## Infrastructure
 
-- Vercel
+- Vercel (Frontend)
 - Supabase PostgreSQL
-- Free backend hosting
+- Free Node.js hosting (Backend)
 
-Designed to keep the MVP deployable without mandatory paid services.
+The MVP targets free-tier deployment. HAF indexing may use a public provider during development, with self-hosting considered for future production deployments.
 
 ---
 
 # Hive Integration
 
 ## Publishing
+
+HiveLore follows a non-custodial publishing model. Once a proposal is approved for publication, the contributor signs the final Hive transaction using Hive Keychain or HiveSigner. After the transaction is confirmed and indexed, the content becomes official canon.
 
 ### Hive Posts
 
@@ -117,8 +125,8 @@ Designed to keep the MVP deployable without mandatory paid services.
 
 ### Hive Comments
 
-- Story continuations
 - Community discussions
+- Story continuations
 
 ### custom_json
 
@@ -128,13 +136,14 @@ Designed to keep the MVP deployable without mandatory paid services.
 - Metadata
 - Beneficiary settings
 
-## Signing
+## Resource Credits
 
-Hive transactions are built and signed using WAX through Hive Keychain or HiveSigner.
+Publishing requires Hive Resource Credits (RC). Contributors are responsible for maintaining sufficient RC to publish content. Future versions may support optional account onboarding and RC delegation. The MVP assumes contributors already own a Hive account. Account creation
+and optional RC delegation are future enhancements.
 
 ## Reading
 
-Blockchain data is indexed through HAF and synchronized into PostgreSQL for fast application queries and analytics.
+Published blockchain data is indexed through HAF or compatible Hive indexing services and synchronized into PostgreSQL for fast queries, search, analytics, and contributor profiles.
 
 ---
 
@@ -147,8 +156,8 @@ Hive stores immutable published canon and creator attribution.
 - World Seeds
 - Published World Bible
 - Canon lore
-- Canon decisions
 - Story chapters
+- Canon decisions
 - Creator attribution
 - Rewards
 - Beneficiary metadata
@@ -174,33 +183,55 @@ Hive accounts are the platform's only identity system.
 
 Authentication flow:
 
-1. Enter Hive username
-2. Sign authentication challenge
-3. Verify signature
-4. Create secure session
+1. Enter Hive username.
+2. Sign an authentication challenge.
+3. Verify the signature.
+4. Create a secure session.
 
 Private keys are never stored. Authentication is entirely non-custodial.
 
 ---
 
-# Canon Governance
+# Governance
 
-## Canon Workflow
+## Publication Workflow
 
-1. Contributor submits proposal
-2. AI performs consistency analysis
-3. Community reviews and votes
-4. Proposal reaches approval threshold
-5. Proposal becomes canon
-6. Backend publishes approved content to Hive
-7. HAF indexes the published record
+1. Contributor submits a proposal.
+2. AI analyzes the proposal against the current World Bible and related canon.
+3. Community reviews the proposal and AI report.
+4. Eligible contributors vote.
+5. Proposal reaches the approval threshold.
+6. Proposal becomes **Approved for Publication**.
+7. Contributor signs the final Hive transaction.
+8. Content is published to the Hive blockchain.
+9. The indexer synchronizes the published record into PostgreSQL.
+10. The published content becomes **Canon**.
+
+## AI Consistency
+
+AI provides advisory analysis only by comparing proposals against the current World Bible and related canon.
+
+Checks include:
+
+- Rule conflicts
+- Timeline inconsistencies
+- Duplicate lore
+- Character continuity
+- Location continuity
+- Missing references
+
+AI recommendations never approve or reject proposals. AI analysis uses a configurable LLM provider, allowing deployments to use
+available free-tier quotas or self-hosted models.
 
 ## App Voting
 
-Default MVP requirements:
+Default MVP:
 
 - Minimum vote threshold
 - 70% approval
+- Voting restricted to contributors meeting minimum reputation requirements
+
+These rules provide basic protection against Sybil attacks while keeping governance simple.
 
 ## Hive Voting
 
@@ -208,9 +239,9 @@ Hive votes determine:
 
 - Visibility
 - Financial rewards
-- Public engagement
+- Community engagement
 
-Financial influence never determines canon.
+Hive voting never determines canon.
 
 ---
 
@@ -261,7 +292,7 @@ REST API modules:
 - Proposal Workflow
 - Voting
 - AI Analysis
-- Hive Publishing
+- Hive Integration
 - Search
 - Profiles
 - Moderation
@@ -270,30 +301,29 @@ REST API modules:
 
 # Reputation & Rewards
 
-Application reputation is independent of Hive reputation and is computed by an indexer using both application events and indexed Hive activity.
+Application reputation is independent of Hive reputation and is computed from application events and indexed Hive activity.
 
 ## Reputation
 
-The indexer continuously aggregates signals such as:
+The reputation indexer aggregates:
 
-- Canon lore accepted
+- Accepted canon contributions
 - Approved proposals
-- World Bible contributions
-- Community voting participation
-- Constructive discussions
-- Founder and moderator activity
-- AI-assisted review outcomes
-- Moderation actions
+- Community participation
+- Voting activity
+- Founder activity
+- Moderator actions
+- Moderation history
 
 Reputation is recalculated from historical events, making it transparent, auditable, and reproducible.
 
-Reputation influences governance, permissions, contributor recognition, and future reputation-weighted voting.
+Reputation influences governance eligibility, contributor recognition, and future reputation-weighted features.
 
 ## Rewards
 
 Hive remains the financial reward layer.
 
-Published canon is posted with beneficiary settings defining reward distribution.
+Approved canon is published by its contributor with beneficiary settings defining reward distribution.
 
 | Recipient | Share |
 |-----------|------:|
@@ -301,15 +331,7 @@ Published canon is posted with beneficiary settings defining reward distribution
 | World Founder | 10% |
 | Platform | 0% |
 
-Through HAF, the indexer aggregates:
-
-- Author rewards
-- Beneficiary rewards
-- Curation rewards
-- Post payouts
-- Contribution history
-
-These indexed records power contributor profiles, leaderboards, analytics, and historical reward tracking without affecting canon governance.
+Indexed Hive reward data powers contributor profiles, leaderboards, analytics, and historical reward tracking without influencing canon governance.
 
 ---
 
@@ -317,7 +339,7 @@ These indexed records power contributor profiles, leaderboards, analytics, and h
 
 **Current Stage:** MVP
 
-### MVP Focus
+## MVP Focus
 
 - Core worldbuilding
 - Canon governance
@@ -325,12 +347,14 @@ These indexed records power contributor profiles, leaderboards, analytics, and h
 - Reputation system
 - Search
 
-### Not Included
+## Not Included
 
 - Mobile application
 - Multi-chain support
 - Interactive maps
 - AI story generation
+- Automated account onboarding
+- RC delegation
 
 ---
 
@@ -343,12 +367,12 @@ Sprint   Goal
 1        Hive Authentication
 2        World & Lore
 3        AI Consistency
-4        Canon Workflow
+4        Governance Workflow
 5        Hive Publishing
-6        Blockchain Indexer
+6        Blockchain Indexing
 7        Reputation & Profiles
 8        Search & Discovery
-9        QA & MVP
+9        QA & MVP Release
 ```
 
 ---
@@ -361,4 +385,5 @@ Sprint   Goal
 - Advanced analytics
 - Plugin ecosystem
 - Public developer API
-````
+- Account onboarding and RC delegation
+- Self-hosted HAF infrastructure
