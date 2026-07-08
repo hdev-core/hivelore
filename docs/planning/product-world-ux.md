@@ -51,4 +51,40 @@ The product can describe roles in user language, while the backend can implement
 | Approve canon alone | No | No | No | No, except executing rule-based status after threshold |
 | Mark spam/abuse | Report only | Report only | Report only | Yes |
 | Resolve AI-warning queue | No | No | Comment/recommend | Yes |
-                
+
+# 4. Canon voting model and branching lore
+
+Figure 2. Canon workflow. A proposal can become canon when it passes AI consistency visibility and community approval, or remain readable as an alternate timeline if it conflicts with main canon
+
+## 4.1 Canon status definitions
+
+| Status | Meaning | When used |
+| --- | --- | --- |
+| Draft | Private or unfinished content visible to creator only. | Creator is still editing. |
+| Proposal | Public to the world community but not official. | Submitted after AI check. |
+| AI Warning | Proposal has a visible unresolved contradiction. | Contradiction is major but user chose to submit anyway. |
+| Under Review | Proposal has enough attention and is near decision. | Vote window active or threshold close. |
+| Canon | Official part of the world. Future proposals can build on it. | Approval threshold met and AI warning handled. |
+| Rejected | Not accepted into main canon. | Insufficient support, spam, poor fit, or unresolved issue. |
+| Alternate Timeline | Readable branch that is not main canon. | Useful creative branch or conflict accepted outside main continuity. |
+| Archived | Old or inactive entry kept for record. | Superseded, outdated, or preserved for transparency. |
+
+## 4.2 MVP canon rule
+
+- A contribution starts as Draft, then runs through AI Check before becoming a Proposal.
+- MVP default threshold: at least 5 total internal votes, at least 70% approval, and a 48-hour voting window before canonization.
+- Votes can be Approve, Reject, Needs Revision, or Mark as Alternate Timeline. Approval percentage should count Approve against Approve + Reject. Needs Revision is feedback, not approval.
+- The AI report is visible during voting. A major unresolved warning does not automatically block submission, but it must stay attached to the proposal.
+- If the proposal passes approval but has a major AI warning, a curator/moderator can either request revision, allow canon with warning acknowledged, or move it to Alternate Timeline based on community response.
+- Founder comments should be highlighted, but the founder should not have absolute final power after the world launches.
+
+## 4.3 Conflict and branching rules
+
+| Conflict type | Handling | Example |
+| --- | --- | --- |
+| Minor style mismatch | AI suggests edits; proposal can still go to vote. | Example: name style slightly different from world naming rules. |
+| Major contradiction | Proposal gets AI Warning label; user can revise or submit with warning. | Example: dead ruler appears alive after confirmed death. |
+| Timeline conflict | Proposal must link to an era/date and show conflict in vote screen. | Example: city is destroyed in Year 400 but used as active in Year 405. |
+| Branching continuation | Proposal can be marked Branch of an existing story. | Community can vote one branch into main canon, others stay as alternate. |
+| Duplicate lore | Curator can merge, archive, or request revision. | Example: two users create same kingdom with conflicting ruler. |
+| Community accepts contradiction intentionally | Allowed as canon only if warning is visible and vote threshold passes. | Example: resurrection arc is accepted and becomes new canon event. |
