@@ -25,3 +25,30 @@ The entity model should be shared with the technical architecture track. Product
 ![Entity Relationship Diagram](images/Entity%20Relationship%20Diagram.png)
 
 Figure 1. Lore entity relationship diagram. LoreEntry is the reusable base object for characters, cities/kingdoms, factions, quests, historical events, artifacts, and story contributions. Relationships turn individual entries into a searchable world graph.
+
+# 3. User roles and permissions
+
+The product can describe roles in user language, while the backend can implement them as permissions. A user may have different roles in different worlds. For example, a user can be a founder in one world and a normal contributor in another.
+
+| Role | Can do | Cannot / limits |
+| --- | --- | --- |
+| Reader / Explorer | Browse public worlds, read canon, search, view profiles, view vote history, ask basic AI lore questions if logged in. | Cannot create canon directly; cannot moderate; may need Hive login to vote/comment. |
+| Contributor / Writer | Create drafts, submit proposals, write story continuations, create characters/factions/cities/events/quests, link entries to existing canon, revise after feedback. | Cannot canonize own work alone; must pass AI check and community vote. |
+| World-builder / Founder | Create new world, define World Seed and World Bible, set tone/rules, recommend direction, comment with founder badge, maintain starter canon. | Not absolute final authority after launch; community vote and AI visibility remain central. |
+| Curator / Moderator | Review reports, hide spam/abuse, review AI-warning proposals, resolve duplicate entries, enforce platform rules, help mark decision outcomes after thresholds. | Should not silently override community decisions; actions need audit trail. |
+| Admin | Manage platform settings, global categories, blocked content, system health, abuse cases. | Platform-level only; not a creative canon owner. |
+| AI Assistant | Checks consistency, suggests links, explains contradictions, helps users write, summarizes lore. | Cannot approve canon alone; outputs are suggestions/warnings. |
+
+| Permission | Reader | Contributor | World-builder / Founder | Curator / Moderator |
+| --- | --- | --- | --- | --- |
+| View public world | Yes | Yes | Yes | Yes |
+| Create lore draft | No | Yes | Yes | Yes |
+| Submit proposal | No | Yes | Yes | Yes |
+| Create new world | No | Optional / if allowed | Yes | Optional |
+| Edit own draft | No | Yes | Yes | Yes |
+| Edit canon directly | No | No | Only initial seed/bible or proposed revisions | No, except moderation fixes |
+| Vote on proposal | Logged-in readers only | Yes | Yes, but founder badge visible | Yes |
+| Approve canon alone | No | No | No | No, except executing rule-based status after threshold |
+| Mark spam/abuse | Report only | Report only | Report only | Yes |
+| Resolve AI-warning queue | No | No | Comment/recommend | Yes |
+                
