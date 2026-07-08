@@ -8,7 +8,7 @@ HiveLore enables communities to collaboratively build fictional worlds instead o
 
 ---
 
-# Core Concepts
+# Core Concepts and Principles
 
 | Term | Definition |
 |------|------------|
@@ -19,6 +19,16 @@ HiveLore enables communities to collaboratively build fictional worlds instead o
 | **Canon Lore** | An approved unit of worldbuilding, such as a character, location, faction, event, artifact, or historical record. |
 | **Story Chapter** | A narrative set within an established world that builds upon existing canon without redefining it. |
 
+- Hive is the immutable public record.
+- PostgreSQL is the indexed application database.
+- Canon is determined by community governance.
+- Hive rewards determine financial incentives.
+- AI assists but never decides canon.
+- Only approved content is published on-chain.
+- MVP runs on free-tier infrastructure.
+
+---
+
 ## Goals
 
 - Collaborative worldbuilding
@@ -27,18 +37,6 @@ HiveLore enables communities to collaboratively build fictional worlds instead o
 - AI-assisted consistency
 - Hive-native identity and rewards
 - Scalable indexed blockchain architecture
-
----
-
-# Core Principles
-
-- Hive is the immutable public record.
-- PostgreSQL is the indexed application database.
-- Canon is determined by community governance.
-- Hive rewards determine financial incentives.
-- AI assists but never decides canon.
-- Only approved content is published on-chain.
-- MVP runs on free-tier infrastructure.
 
 ---
 
