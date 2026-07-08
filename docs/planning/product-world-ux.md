@@ -135,3 +135,78 @@ Reputation should make good contributors visible without making the MVP too comp
 | World councils / elected stewards | Future | Too complex for MVP governance. |
 | Advanced AI lore chatbot | Future | Basic AI summaries can exist, full Q&A can come after structured lore grows. |
 | NFT collectibles | Future | Not needed to prove product value. |
+
+
+# 7. Primary user journeys
+
+## Journey A - Founder creates a world
+
+1. User logs in with Hive.
+1. Clicks Create New World.
+1. Completes World Seed: genre, tone, conflict, first location, first characters, first factions, first event.
+1. Writes World Bible with rules and writing style.
+1. Publishes world. System marks seed as canon.
+1. World Hub opens with starter canon and contribution button.
+
+| Success outcome<br>A public world exists with starter canon, clear tone, and enough structure for others to contribute. |
+| --- |
+
+## Journey B - Writer creates a character
+
+1. Writer opens a world.
+1. Clicks Create Contribution.
+1. Chooses Character.
+1. Adds name, role, faction, location, status, motivation, and body text.
+1. Links character to existing faction/city/event.
+1. Runs AI check.
+1. Submits proposal for vote.
+
+| Success outcome<br>Character proposal is visible with related entries, AI report, and voting controls. |
+| --- |
+
+## Journey C - Others extend a character into a story thread
+
+1. Reader opens the character page.
+1. Clicks Extend this character.
+1. Chooses Story/Contribution.
+1. Writes a chapter using the character.
+1. Marks it as continuation of an existing story or starts a new thread.
+1. AI checks continuity.
+1. Community comments and votes.
+
+| Success outcome<br>A story branch is connected to the character and can become canon or alternate timeline. |
+| --- |
+
+## Journey D - Canon vote decision
+
+1. Community sees proposal in Active Votes.
+1. Users read summary, full text, related lore, and AI report.
+1. Users vote Approve, Reject, Needs Revision, or Alternate.
+1. System tracks approval percentage and minimum vote count.
+1. After voting window, system moves proposal to Canon, Rejected, Needs Revision, or Alternate Timeline.
+
+| Success outcome<br>Decision is visible, explainable, and stored in proposal history. |
+| --- |
+
+## Journey E - Conflict handling
+
+1. Writer submits content that conflicts with canon.
+1. AI detects issue and explains source conflict.
+1. Writer revises or submits with AI Warning label.
+1. Voters see warning while voting.
+1. If accepted as intentional change, it can become canon; otherwise it becomes rejected or alternate.
+
+| Success outcome<br>Contradictions are not hidden; they become part of a transparent decision process. |
+| --- |
+
+## Journey F - Reader explores before contributing
+
+1. Reader opens World Hub.
+1. Reads summary and World Bible highlights.
+1. Filters canon entries by characters/factions/events.
+1. Opens timeline/map preview.
+1. Follows related entries.
+1. Decides where to contribute.
+
+| Success outcome<br>New users understand the world without reading every entry manually. |
+| --- |
