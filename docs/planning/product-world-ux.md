@@ -62,7 +62,7 @@ The product can describe roles in user language, while the backend can implement
 
 | Role | Can do | Cannot / limits |
 | --- | --- | --- |
-| Reader / Explorer | Browse public worlds, read canon, search, view profiles, view vote history, ask basic AI lore questions if logged in. | Cannot create canon directly; cannot moderate; may need Hive login to vote/comment. |
+| Reader / Explorer | Browse public worlds, read canon, search, view profiles, view vote history, ask basic AI lore questions if logged in. | Cannot create canon directly; cannot moderate; must sign in with Hive Keychain or Google-backed Hive account to vote/comment. |
 | Contributor / Writer | Create drafts, submit proposals, write story continuations, create characters/factions/cities/events/quests, link entries to existing canon, revise after feedback. | Cannot canonize own work alone; must pass AI check and community vote. |
 | World-builder / Founder | Create new world, define World Seed and World Bible, set tone/rules, recommend direction, comment with founder badge, maintain starter canon. | Not absolute final authority after launch; community vote and AI visibility remain central. |
 | Curator / Moderator | Review reports, hide spam/abuse, review AI-warning proposals, resolve duplicate entries, enforce platform rules, help mark decision outcomes after thresholds. | Should not silently override community decisions; actions need audit trail. |
@@ -143,11 +143,15 @@ Reputation should make good contributors visible without making the MVP too comp
 | 150-399 | Canon Builder | Trusted contributor with multiple canonized entries. |
 | 400+ | World Steward | High-quality contributor; may be nominated for curator-style duties in future. |
 
+## 5.2 Technical reputation handoff
+
+The scoring values in section 5 are the source of truth for the technical/indexer layer. Perla should use these exact numbers when implementing reputation calculation so product recognition, profile display, sorting, and future governance logic stay aligned.
+
 # 6. Core features and MVP cut
 
 | Feature | MVP decision | Reason |
 | --- | --- | --- |
-| Hive login | MVP | Required because product is built around Hive identity. |
+| Authentication | MVP | Required because product is built around Hive identity. Primary sign-in is Hive Keychain; optional Google sign-in provisions or connects a Hive account behind the scenes. |
 | World browsing and World Hub | MVP | Users need to discover worlds and understand them quickly. |
 | World Seed + World Bible creation | MVP | This is the foundation for every world and for AI consistency checks. |
 | Lore entity creation | MVP | Support core types: Character, City/Kingdom, Faction, Quest, Historical Event, Story/Contribution. |
@@ -170,7 +174,7 @@ Reputation should make good contributors visible without making the MVP too comp
 
 ## Journey A - Founder creates a world
 
-1. User logs in with Hive.
+1. User signs in with Hive Keychain or uses Continue with Google, which provisions or connects a Hive account behind the scenes.
 1. Clicks Create New World.
 1. Completes World Seed: genre, tone, conflict, first location, first characters, first factions, first event.
 1. Writes World Bible with rules and writing style.
@@ -244,7 +248,26 @@ Reputation should make good contributors visible without making the MVP too comp
 
 These low-fidelity wireframes align the main product flow before visual design. Each image is paired with the required screen content and the user outcome it should support.
 
-## 8.1 World Hub Screen
+## 8.1 Login Screen
+
+![Login Page](images/wireframes/0.%20Login%20Page%20Wireframe.png)
+Entry screen for authentication. It should make Hive Keychain the primary path while allowing the standardized optional Google path for users who do not yet have a Hive account ready.
+
+Purpose: Let users sign in before contributing, voting, viewing personalized profile data, or creating worlds.
+
+Must include:
+- HiveLore logo/name.
+- Welcome message: Welcome back to HiveLore.
+- Supporting text: Sign in to contribute, vote, and build trusted Hive knowledge.
+- Primary button: Sign in with Hive Keychain.
+- Divider between auth methods, such as "or".
+- Secondary button: Continue with Google.
+- Helper text for Google: Creates or connects a Hive account behind the scenes.
+- Small trust note: No password is stored by HiveLore.
+
+UX goal: Users immediately understand that Hive Keychain is the main identity method, while Google is available as a lower-friction onboarding option.
+
+## 8.2 World Hub Screen
 
 ![World Hub Screen](images/wireframes/1.%20World%20Hub%20Wireframe.png)
 
@@ -253,7 +276,7 @@ Main page for one fictional world. It should help a reader understand the world'
 Purpose: Main page for one fictional world.
 
 Must include:
-- Top navigation with HiveLore logo placeholder, search bar, and Hive login/profile area.
+- Top navigation with HiveLore logo placeholder, search bar, and sign-in/profile area.
 - World title, genre, tone, and short summary.
 - World Seed section.
 - World Codex preview section.
@@ -266,7 +289,7 @@ Must include:
 
 UX goal: Readers should understand the world in under one minute and know whether to read, vote, or contribute.
 
-## 8.2 Lore Entity Page
+## 8.3 Lore Entity Page
 
 ![Lore Entity Page](images/wireframes/2.%20Lore%20Entity%20Wireframe.png)
 
@@ -287,7 +310,7 @@ Must include:
 
 UX goal: Any entity can become a clear reading endpoint and a natural starting point for new contributions.
 
-## 8.3 Contribution / Story Editor Screen
+## 8.4 Contribution / Story Editor Screen
 
 ![Contribution / Story Editor Screen](images/wireframes/3.%20Editor%20Wireframe.png)
 
@@ -310,7 +333,7 @@ Must include:
 
 UX goal: Writers can create connected lore, run consistency checks, and submit proposals with clear consequences.
 
-## 8.4 Canon Vote Screen
+## 8.5 Canon Vote Screen
 
 ![Canon Vote Screen](images/wireframes/4.%20Canon%20Vote%20Wireframe.png)
 
@@ -332,7 +355,7 @@ Must include:
 
 UX goal: Voters can make informed decisions and understand why the final canon outcome happened.
 
-## 8.5 Timeline / Map Screen
+## 8.6 Timeline / Map Screen
 
 ![Timeline / Map Screen](images/wireframes/5.%20Map%20Wireframe.png)
 
@@ -351,7 +374,7 @@ Must include:
 
 UX goal: Readers can understand the world's chronology and geography without losing the links back to canon entries.
 
-## 8.6 User Profile Screen
+## 8.7 User Profile Screen
 
 ![User Profile Screen](images/wireframes/6.%20User%20Profile%20Wireframe.png)
 
@@ -373,7 +396,7 @@ Must include:
 
 UX goal: Writers get visible credit and a clear reason to keep making high-quality contributions.
 
-## 8.7 Create World Screen
+## 8.8 Create World Screen
 
 ![Create World Screen](images/wireframes/7.%20Create%20World%20Wireframe.png)
 
@@ -398,7 +421,7 @@ Must include:
 
 UX goal: Founders can publish enough starting structure for other writers to contribute confidently.
 
-## 8.8 Browse Worlds Screen
+## 8.9 Browse Worlds Screen
 
 ![Browse Worlds Screen](images/wireframes/8.%20Browse%20Worlds%20Wireframe.png)
 
@@ -437,7 +460,7 @@ Priorities: P0 = must have for MVP demo, P1 = strong v1 feature if time allows, 
 
 | ID | Feature | Priority | User story | Acceptance criteria |
 | --- | --- | --- | --- | --- |
-| HL-01 | Hive login | P0 | As a user, I can log in with my Hive account so my identity is tied to contributions. | Login button signs request; profile shows Hive username; no password stored. |
+| HL-01 | Authentication | P0 | As a user, I can sign in with Hive Keychain or optionally continue with Google so my identity is tied to a Hive account. | Hive Keychain button signs request; Continue with Google provisions or connects a Hive account behind the scenes; profile shows Hive username; no password stored by HiveLore. |
 | HL-02 | World Hub | P0 | As a reader, I can browse a world and understand its tone, rules, and canon entries. | World page shows summary, World Bible preview, stats, filters, active proposals. |
 | HL-03 | Create World Seed | P0 | As a founder, I can create the structured starting foundation for a world. | Form includes name, genre, tone, conflict, first location, characters, factions, event. |
 | HL-04 | World Bible Editor | P0 | As a founder, I can write a rich guide for contributors. | Rich text saved; visible on hub; referenced by AI check. |
