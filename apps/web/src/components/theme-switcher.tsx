@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { useTheme } from "@/components/theme-provider";
+import { useTheme } from "@/providers/theme-provider";
 
 export function ThemeSwitcher() {
   const id = useId();
