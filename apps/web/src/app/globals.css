@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+
+  --hive-red: #e31337;
+  --hive-black: #212529;
+  --hive-light-grey: #f0f0f8;
+  --hive-grey: #e7e7f1;
+  --hive-white: #ffffff;
+
+  --background: #f8f7fb;
+  --foreground: #1d1b22;
+  --surface: #ffffff;
+  --surface-elevated: #fbfaff;
+  --primary: #212529;
+  --primary-foreground: #ffffff;
+  --secondary: #e7e7f1;
+  --secondary-foreground: #212529;
+  --muted: #efedf5;
+  --muted-foreground: #706a78;
+  --border: #b7b0bf;
+  --input-border: #8f879a;
+  --focus-ring: #e31337;
+  --success: #157a4a;
+  --success-foreground: #ffffff;
+  --warning: #a65f00;
+  --warning-foreground: #1d1300;
+  --danger: #c91432;
+  --danger-foreground: #ffffff;
+  --canon: #212529;
+  --canon-foreground: #ffffff;
+  --status-draft: #7a7282;
+  --status-proposal: #315b9a;
+  --status-review: #7a4cc2;
+  --status-warning: #b35c00;
+  --status-rejected: #b42338;
+  --status-alternate: #2f7668;
+  --status-archived: #5f6670;
+
+  --space-page-x: clamp(1rem, 3vw, 2rem);
+  --space-page-y: clamp(1.5rem, 4vw, 3rem);
+  --space-panel: 1.25rem;
+  --radius-control: 0.375rem;
+  --radius-panel: 0.5rem;
+  --radius-round: 999px;
+  --shadow-soft: 0 1px 2px rgb(33 37 41 / 0.08);
+  --shadow-elevated: 0 18px 45px rgb(33 37 41 / 0.12);
+  --tracking-label: 0.12em;
+  --leading-prose: 1.75;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #111014;
+  --foreground: #f5f2f8;
+  --surface: #19171f;
+  --surface-elevated: #211f28;
+  --primary: #f0f0f8;
+  --primary-foreground: #141217;
+  --secondary: #2b2833;
+  --secondary-foreground: #f5f2f8;
+  --muted: #25222c;
+  --muted-foreground: #b8b1c4;
+  --border: #45404f;
+  --input-border: #6d6578;
+  --focus-ring: #ff4a66;
+  --success: #4cc58a;
+  --success-foreground: #061b11;
+  --warning: #ffbd5a;
+  --warning-foreground: #291600;
+  --danger: #ff5b73;
+  --danger-foreground: #2b0008;
+  --canon: #f0f0f8;
+  --canon-foreground: #141217;
+  --status-draft: #a8a1b2;
+  --status-proposal: #8ab4ff;
+  --status-review: #c4a3ff;
+  --status-warning: #ffc46d;
+  --status-rejected: #ff7a8f;
+  --status-alternate: #7fd6c3;
+  --status-archived: #b7bec8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input-border: var(--input-border);
+  --color-focus-ring: var(--focus-ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-canon: var(--canon);
+  --color-canon-foreground: var(--canon-foreground);
+  --color-status-draft: var(--status-draft);
+  --color-status-proposal: var(--status-proposal);
+  --color-status-review: var(--status-review);
+  --color-status-warning: var(--status-warning);
+  --color-status-rejected: var(--status-rejected);
+  --color-status-alternate: var(--status-alternate);
+  --color-status-archived: var(--status-archived);
+  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --radius-control: var(--radius-control);
+  --radius-panel: var(--radius-panel);
+  --radius-round: var(--radius-round);
+  --shadow-soft: var(--shadow-soft);
+  --shadow-elevated: var(--shadow-elevated);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--hive-red) 24%, transparent);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select {
+  color: inherit;
+}
+
+.prose-text {
+  color: var(--muted-foreground);
+  font-size: 1.0625rem;
+  line-height: var(--leading-prose);
+}
+
+.theme-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.theme-switcher__label {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.theme-switcher__select {
+  min-height: 2.25rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--foreground);
+  padding: 0 2rem 0 0.75rem;
+}
+
+.hive-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.hive-brand img {
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.hive-brand--mark img {
+  width: 100%;
+}
+
+.hive-brand--lockup img {
+  width: 100%;
+}
+
+.status-chip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.4rem 0.7rem;
+  text-transform: uppercase;
+}

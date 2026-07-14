@@ -1,0 +1,14 @@
+{
+  "name": "hivelore",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @hivelore/web run dev",
+    "build": "npm --workspace @hivelore/web run build",
+    "lint": "npm --workspace @hivelore/web run lint",
+    "typecheck": "npm --workspace @hivelore/web run typecheck"
+  }
+}
