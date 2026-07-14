@@ -1,13 +1,50 @@
 import { HiveBrand } from "@/components/hive-brand";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
-const statusTokens = [
-  "Canon",
-  "Draft",
-  "Proposal",
-  "AI Warning",
-  "Rejected",
-  "Alternate",
+const badgeVariants = [
+  ["Draft", "draft"],
+  ["Proposal", "proposal"],
+  ["AI Warning", "ai-warning"],
+  ["Under Review", "under-review"],
+  ["Canon", "canon"],
+  ["Canon Approved", "canon-approved"],
+  ["Rejected", "rejected"],
+  ["Alternate Timeline", "alternate-timeline"],
+  ["Archived", "archived"],
+  ["Ready to Publish", "ready-to-publish"],
+  ["Published on Hive", "published-on-hive"],
+] as const;
+
+const buttonVariants = [
+  "primary",
+  "secondary",
+  "outline",
+  "ghost",
+  "danger",
+  "hive",
+] as const;
+
+const selectOptions = [
+  "Character Lore",
+  "Faction",
+  "Historical Event",
+  "Story Contribution",
 ];
 
 export default function Home() {
@@ -22,7 +59,7 @@ export default function Home() {
           <ThemeSwitcher />
         </header>
 
-        <section className="grid flex-1 items-center gap-10 py-16 md:grid-cols-[1fr_18rem]">
+        <section className="grid items-center gap-10 py-16 md:grid-cols-[1fr_18rem]">
           <div>
             <p className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
               Design foundation
@@ -37,10 +74,10 @@ export default function Home() {
             </p>
 
             <div className="mt-8 flex flex-wrap gap-2">
-              {statusTokens.map((status) => (
-                <span className="status-chip" key={status}>
-                  {status}
-                </span>
+              {badgeVariants.slice(0, 6).map(([label, variant]) => (
+                <Badge key={variant} variant={variant}>
+                  {label}
+                </Badge>
               ))}
             </div>
           </div>
@@ -57,6 +94,138 @@ export default function Home() {
               general HiveLore interface palette.
             </p>
           </aside>
+        </section>
+
+        <section
+          aria-labelledby="component-primitives-heading"
+          className="border-t border-border py-10"
+        >
+          <div className="mb-6">
+            <p className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Development check
+            </p>
+            <h2
+              className="mt-2 text-2xl font-semibold tracking-normal"
+              id="component-primitives-heading"
+            >
+              Core UI primitives
+            </h2>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Controls</CardTitle>
+                <CardDescription>
+                  Keyboard focus, disabled states, loading states, and invalid
+                  inputs can be checked here.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-3">
+                  {buttonVariants.map((variant) => (
+                    <Button key={variant} variant={variant}>
+                      {variant}
+                    </Button>
+                  ))}
+                  <Button isLoading loadingLabel="Checking">
+                    Loading
+                  </Button>
+                  <Button disabled variant="secondary">
+                    Disabled
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-2 text-sm font-semibold">
+                    Title
+                    <Input placeholder="Enter lore title" />
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold">
+                    Entry type
+                    <Select defaultValue="Character Lore">
+                      {selectOptions.map((option) => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold md:col-span-2">
+                    Search
+                    <SearchInput aria-label="Search lore archive" />
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold md:col-span-2">
+                    Invalid field
+                    <Input
+                      aria-describedby="invalid-example-message"
+                      defaultValue="Conflicting canon value"
+                      isInvalid
+                    />
+                    <span
+                      className="text-sm font-normal text-danger"
+                      id="invalid-example-message"
+                    >
+                      This example shows the invalid presentation state.
+                    </span>
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold md:col-span-2">
+                    Notes
+                    <Textarea placeholder="Draft a neutral verification note." />
+                  </label>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="space-y-6">
+              <Card variant="elevated">
+                <CardHeader>
+                  <CardTitle>Status badges</CardTitle>
+                  <CardDescription>
+                    Presentation variants only.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  {badgeVariants.map(([label, variant]) => (
+                    <Badge key={variant} variant={variant}>
+                      {label}
+                    </Badge>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Alert variant="warning">
+                <AlertTitle>AI warning example</AlertTitle>
+                <AlertDescription>
+                  This is a reusable alert style, not workflow behavior.
+                </AlertDescription>
+              </Alert>
+            </div>
+          </div>
+
+          <Tabs className="mt-6" defaultValue="one">
+            <TabsList aria-label="Component verification tabs">
+              <TabsTrigger value="one">First tab</TabsTrigger>
+              <TabsTrigger value="two">Second tab</TabsTrigger>
+              <TabsTrigger disabled value="disabled">
+                Disabled tab
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="one">
+              <Card variant="muted">
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Use Tab to focus the selected trigger, then arrow keys to
+                    move between enabled tabs.
+                  </p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="two">
+              <div className="grid gap-2">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-4 w-1/2" />
+              </div>
+            </TabsContent>
+          </Tabs>
         </section>
       </div>
     </main>

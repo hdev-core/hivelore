@@ -37,6 +37,8 @@
   --status-rejected: #b42338;
   --status-alternate: #2f7668;
   --status-archived: #5f6670;
+  --status-ready: #157a4a;
+  --status-published: var(--hive-red);
 
   --space-page-x: clamp(1rem, 3vw, 2rem);
   --space-page-y: clamp(1.5rem, 4vw, 3rem);
@@ -81,6 +83,8 @@
   --status-rejected: #ff7a8f;
   --status-alternate: #7fd6c3;
   --status-archived: #b7bec8;
+  --status-ready: #4cc58a;
+  --status-published: #ff4a66;
 }
 
 @theme inline {
@@ -112,6 +116,8 @@
   --color-status-rejected: var(--status-rejected);
   --color-status-alternate: var(--status-alternate);
   --color-status-archived: var(--status-archived);
+  --color-status-ready: var(--status-ready);
+  --color-status-published: var(--status-published);
   --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
   --radius-control: var(--radius-control);
@@ -152,11 +158,6 @@ input,
 select,
 textarea {
   font: inherit;
-}
-
-button,
-select {
-  color: inherit;
 }
 
 .prose-text {
