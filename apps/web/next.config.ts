@@ -3,12 +3,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(appDirectory, '../..');
 
 const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  outputFileTracingRoot: path.join(appDirectory, '../..'),
+  outputFileTracingRoot: repoRoot,
+  turbopack: {
+    root: repoRoot,
+  },
 };
 
 export default nextConfig;

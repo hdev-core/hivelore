@@ -2,6 +2,7 @@ import cors from '@fastify/cors';
 import Fastify from 'fastify';
 
 import { env } from './config/env.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoute } from './routes/health.js';
 
 export async function buildApp() {
@@ -16,6 +17,7 @@ export async function buildApp() {
   });
 
   await registerHealthRoute(app);
+  await registerAuthRoutes(app);
 
   return app;
 }
