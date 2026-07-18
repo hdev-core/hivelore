@@ -7,8 +7,12 @@
   ],
   "scripts": {
     "dev": "npm --workspace @hivelore/web run dev",
+    "dev:api": "npm --workspace @hivelore/api run dev",
     "build": "npm --workspace @hivelore/web run build",
+    "build:api": "npm --workspace @hivelore/api run build",
     "lint": "npm --workspace @hivelore/web run lint",
-    "typecheck": "npm --workspace @hivelore/web run typecheck"
+    "typecheck": "npm --workspace @hivelore/web run typecheck && npm --workspace @hivelore/api run typecheck",
+    "prisma:generate": "npm --workspace @hivelore/api run prisma:generate",
+    "prisma:migrate": "npm --workspace @hivelore/api run prisma:migrate"
   }
 }
