@@ -1,0 +1,7 @@
+{
+  "name": "@hivelore/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared HiveLore configuration package placeholder."
+}
