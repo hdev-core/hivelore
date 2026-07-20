@@ -1,4 +1,5 @@
 import { HiveBrand } from '@/components/hive-brand';
+import { RichTextEditor } from '@/components/editor/rich-text-editor';
 import { ThemeSwitcher } from '@/components/theme-switcher';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -76,6 +77,46 @@ export default function FoundationPage() {
           <ErrorState action={<Button variant="danger">Retry preview</Button>} />
         </div>
         <LoadingState mode="page" presentation="skeleton" />
+      </section>
+
+      <section aria-labelledby="editor-heading" className="space-y-4">
+        <div>
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Editor scaffold
+          </p>
+          <h2 id="editor-heading" className="mt-2 text-2xl font-semibold tracking-normal">
+            TipTap contribution editor preview
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Development-only editor scaffold with no saving, draft persistence, proposal submission,
+            AI checks, or collaboration behavior.
+          </p>
+        </div>
+        <Card>
+          <CardContent>
+            <RichTextEditor
+              initialContent="<p>Use this scaffold to test formatting behavior only.</p>"
+              label="Preview contribution body"
+              placeholder="Outline a lore contribution..."
+            />
+          </CardContent>
+        </Card>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardContent>
+              <RichTextEditor disabled label="Disabled editor preview" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent>
+              <RichTextEditor
+                initialContent="<p>This read-only preview cannot be edited.</p>"
+                label="Read-only editor preview"
+                readOnly
+              />
+            </CardContent>
+          </Card>
+        </div>
       </section>
 
       <section aria-labelledby="controls-heading" className="grid gap-6 lg:grid-cols-[1fr_20rem]">
