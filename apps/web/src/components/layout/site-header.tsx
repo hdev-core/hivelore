@@ -4,7 +4,6 @@ import { ThemeSwitcher } from '@/components/theme-switcher';
 import { DesktopNavigation } from '@/components/layout/desktop-navigation';
 import { MobileNavigation } from '@/components/layout/mobile-navigation';
 import { SearchInput } from '@/components/ui/search-input';
-import { Button } from '@/components/ui/button';
 
 export function SiteHeader() {
   return (
@@ -26,8 +25,11 @@ export function SiteHeader() {
 
         <div className="hidden items-center gap-3 sm:flex">
           <ThemeSwitcher />
-          <Link href="/login">
-            <Button variant="outline">Sign in</Button>
+          <Link
+            className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground shadow-soft transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            href="/login"
+          >
+            Sign in
           </Link>
         </div>
 

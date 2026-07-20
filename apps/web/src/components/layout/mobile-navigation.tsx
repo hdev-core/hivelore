@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { ThemeSwitcher } from '@/components/theme-switcher';
 import { Button } from '@/components/ui/button';
 import { navigationLinks } from '@/components/layout/navigation-links';
+import { SearchInput } from '@/components/ui/search-input';
 
 export function MobileNavigation() {
   const [isOpen, setIsOpen] = useState(false);
@@ -20,8 +22,8 @@ export function MobileNavigation() {
       }
     };
 
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [isOpen]);
 
   return (
@@ -41,6 +43,11 @@ export function MobileNavigation() {
         <div
           aria-modal="true"
           className="fixed inset-0 z-50 bg-background/95 p-4 backdrop-blur"
+          onKeyDownCapture={(event) => {
+            if (event.key === 'Escape') {
+              setIsOpen(false);
+            }
+          }}
           role="dialog"
         >
           <div className="mx-auto flex max-w-sm flex-col gap-5 rounded-panel border border-border bg-surface p-4 shadow-elevated">
@@ -70,6 +77,21 @@ export function MobileNavigation() {
                 ))}
               </ul>
             </nav>
+            <div className="grid gap-4 border-t border-border pt-4">
+              <SearchInput
+                aria-label="Search placeholder"
+                disabled
+                placeholder="Search coming soon"
+              />
+              <ThemeSwitcher />
+              <Link
+                className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground shadow-soft transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                href="/login"
+                onClick={() => setIsOpen(false)}
+              >
+                Sign in
+              </Link>
+            </div>
           </div>
         </div>
       ) : null}
