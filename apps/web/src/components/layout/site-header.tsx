@@ -26,7 +26,9 @@ export function SiteHeader() {
 
         <div className="hidden items-center gap-3 sm:flex">
           <ThemeSwitcher />
-          <Button variant="outline">Sign in</Button>
+          <Link href="/login">
+            <Button variant="outline">Sign in</Button>
+          </Link>
         </div>
 
         <MobileNavigation />
