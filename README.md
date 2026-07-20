@@ -341,6 +341,8 @@ Indexed Hive reward data powers contributor profiles, leaderboards, analytics, a
 
 The repository currently contains foundation infrastructure only. Product features described in the vision and roadmap are planned for later work and are not implemented in this scaffold.
 
+The web workspace now includes a UI foundation: shared responsive application shell, reusable UI primitives, loading/empty/error states, minimal placeholder routes, route-level loading/error/not-found states, theme switching, official Hive asset usage, TanStack Query/API client wiring, and a TipTap editor scaffold. See `apps/web/README.md` for frontend-specific usage and boundaries.
+
 ## MVP Focus
 
 - Core worldbuilding
@@ -597,9 +599,17 @@ hivelore/
 |       |   |   |-- globals.css
 |       |   |   |-- layout.tsx
 |       |   |   `-- page.tsx
+|       |   |-- components/
+|       |   |   |-- editor/
+|       |   |   |-- layout/
+|       |   |   |-- states/
+|       |   |   `-- ui/
 |       |   `-- lib/
+|       |       |-- api/
+|       |       |-- query/
 |       |       `-- env.ts
 |       |-- .env.example
+|       |-- README.md
 |       |-- next-env.d.ts
 |       |-- next.config.ts
 |       |-- package.json
