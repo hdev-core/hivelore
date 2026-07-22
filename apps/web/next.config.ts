@@ -6,9 +6,6 @@ const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(appDirectory, '../..');
 
 const nextConfig: NextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   outputFileTracingRoot: repoRoot,
   turbopack: {
     root: repoRoot,
