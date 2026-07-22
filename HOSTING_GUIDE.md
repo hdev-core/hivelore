@@ -31,7 +31,7 @@ NEXT_PUBLIC_API_BASE_URL
 Production deploys run from `main` through `.github/workflows/deploy.yml`.
 Pull requests get preview deploys through `.github/workflows/preview.yml`.
 
-The Vercel project should use the repository root. The root `vercel.json` builds only the web workspace:
+The Vercel project should use `apps/web` as its Root Directory. The web app's `apps/web/vercel.json` builds the web workspace from the monorepo root:
 
 ```text
 npm run build --workspace=@hivelore/web
