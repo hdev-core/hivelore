@@ -37,6 +37,8 @@ The Vercel project should use `apps/web` as its Root Directory. The web app's `a
 npm run build --workspace=@hivelore/web
 ```
 
+The GitHub Actions Vercel CLI commands run from the repository checkout root. Do not add `--cwd=apps/web` while the Vercel project Root Directory is also `apps/web`, because the CLI will resolve the app path twice.
+
 ## Supabase and Prisma
 
 Store database URLs in local `.env` files and hosting dashboards only. Never commit them.
