@@ -36,7 +36,7 @@ frontend use §3A and you're unblocked without waiting on an org install.)_
 
 ---
 
-## 3. Frontend → Vercel  (HiveLore is **Next.js** — use the Git integration)
+## 3. Frontend → Vercel (HiveLore is **Next.js** — use the Git integration)
 
 > ⚠️ **Because HiveLore is Next.js, use Vercel's native Git integration, NOT the CLI action.**
 > Vercel builds Next.js natively. The CLI `vercel deploy --prebuilt` step **hangs** on this monorepo
@@ -44,6 +44,7 @@ frontend use §3A and you're unblocked without waiting on an org install.)_
 > also on) — that's the 1h+ stuck "Preview Web" run we saw. Fix it once via the dashboard, below.
 
 **A) Recommended — Vercel Git integration (no workflow files).**
+
 1. Import the `hivelore` repo in the Vercel dashboard.
 2. **Root Directory → `apps/web`**, Framework → Next.js, Output Directory → empty/default.
 3. **Delete `preview.yml` / `deploy.yml`** — Vercel then auto-builds every PR with a preview URL and
