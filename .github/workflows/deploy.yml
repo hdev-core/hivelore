@@ -19,6 +19,7 @@ jobs:
   deploy:
     name: Vercel Production
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -34,6 +35,7 @@ jobs:
         run: npm ci
 
       - name: Pull Vercel environment
+        timeout-minutes: 3
         run: npx vercel@${VERCEL_CLI_VERSION} pull --yes --environment=production --token="${VERCEL_TOKEN}"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -41,6 +43,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Vercel artifact
+        timeout-minutes: 10
         run: npx vercel@${VERCEL_CLI_VERSION} build --prod --token="${VERCEL_TOKEN}"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -49,6 +52,7 @@ jobs:
 
       - name: Deploy to Vercel
         id: deploy
+        timeout-minutes: 5
         run: |
           url="$(npx vercel@${VERCEL_CLI_VERSION} deploy --prebuilt --prod --token="${VERCEL_TOKEN}")"
           echo "url=${url}" >> "${GITHUB_OUTPUT}"
