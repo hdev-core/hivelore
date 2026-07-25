@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "prisma generate",
     "dev": "tsx watch src/server.ts",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
@@ -13,8 +14,12 @@
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset",
     "db:studio": "prisma studio",
+    "pretest": "prisma generate",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "pretypecheck": "prisma generate",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "prebuild": "prisma generate",
     "build": "tsc",
     "start": "node dist/server.js",
     "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\""

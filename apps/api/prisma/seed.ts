@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { ensureActiveFounderMembership } from '../src/lib/founder-memberships.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -65,6 +66,13 @@ async function main() {
         'A fictional chain of floating islands where memory, weather, and craft are tightly intertwined.',
       founderId: founder.id,
     },
+  });
+
+  // Development seed data is disposable: reruns intentionally normalize this fixture
+  // back to one active FOUNDER membership instead of preserving manual local edits.
+  await ensureActiveFounderMembership(prisma, {
+    worldId: world.id,
+    userId: founder.id,
   });
 
   await prisma.worldBibleVersion.upsert({
