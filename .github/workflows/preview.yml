@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 env:
   VERCEL_CLI_VERSION: 50.28.0
@@ -70,7 +70,8 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Comment preview URL
-        uses: actions/github-script@v7
+        continue-on-error: true
+        uses: actions/github-script@v8
         with:
           script: |
             const marker = '<!-- hivelore-vercel-preview -->';
