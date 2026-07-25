@@ -458,6 +458,11 @@ DATABASE_URL="postgresql://USER:PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=tru
 
 # Direct PostgreSQL connection used for Prisma migrations and administrative operations.
 DIRECT_URL="postgresql://USER:PASSWORD@DIRECT_HOST:5432/postgres"
+
+# Hive integration defaults to public development endpoints.
+HIVE_RPC_URL="https://api.hive.blog"
+HAF_API_URL="https://api.hive.blog/hafbe-api"
+HIVELORE_APP_ID="hivelore/0.1.0"
 ```
 
 `DATABASE_URL` is the pooled connection used by normal API queries. `DIRECT_URL` is the direct PostgreSQL connection Prisma uses for migrations and administrative operations. Supabase service-role keys are not required for Prisma's PostgreSQL connection. Hive private keys must never be stored.
@@ -532,6 +537,8 @@ The seed at `apps/api/prisma/seed.ts` is development-only and contains fictional
 ### On-chain Boundary
 
 Hive is authoritative for on-chain publication, authorship, rewards, beneficiary metadata, and blockchain events. `HiveReference`, `HiveEvent`, `RewardRecord`, and `UserRewardSummary` are indexed or derived database projections. A local PostgreSQL flag or timestamp is never sufficient to prove canon; canon requires an approved publication that has been published to Hive and indexed by HiveLore.
+
+All backend Hive access goes through `apps/api/src/lib/hive`. The module uses `@hiveio/wax` for transaction build, serialization, signing handoff, and broadcast; it exposes signer abstractions for Hive Keychain and HiveSigner flows without storing private keys. HAF reads use the configurable read-only `HAF_API_URL` client and are normalized before projection into PostgreSQL. The initial default is Hive's public HAF Block Explorer endpoint; self-hosted HAF remains deferred.
 
 ## Run Locally
 
