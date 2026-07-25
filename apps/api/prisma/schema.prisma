@@ -110,28 +110,54 @@ enum SearchEntityType {
   PROPOSAL
 }
 
+enum PlatformRole {
+  USER
+  ADMIN
+}
+
+enum WorldRole {
+  READER
+  CONTRIBUTOR
+  FOUNDER
+  CURATOR
+}
+
+enum WorldAuditAction {
+  ROLE_ASSIGNED
+  ROLE_CHANGED
+  ROLE_REMOVED
+  MODERATION_ACTION
+  CANON_STATUS_EXECUTED
+  AI_WARNING_RESOLVED
+}
+
 model User {
-  id                     String                   @id @default(cuid())
-  hiveUsername           String                   @unique
-  normalizedHiveUsername String                   @unique
-  displayName            String?
-  avatarUrl              String?
-  bio                    String?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  foundedWorlds          World[]                  @relation("WorldFounder")
-  bibleVersions          WorldBibleVersion[]      @relation("WorldBibleVersionCreator")
-  loreEntries            LoreEntry[]              @relation("LoreEntryAuthor")
-  proposals              Proposal[]               @relation("ProposalAuthor")
-  votes                  AppVote[]                @relation("AppVoteVoter")
-  moderationReports      ModerationReport[]       @relation("ModerationReporter")
-  moderationReviews      ModerationReport[]       @relation("ModerationReviewer")
-  hiveReferences         HiveReference[]          @relation("HiveReferenceAuthor")
-  rewardRecords          RewardRecord[]
-  rewardSummaries        UserRewardSummary[]
-  reputationSnapshots    UserReputationSnapshot[]
+  id                      String                   @id @default(cuid())
+  hiveUsername            String                   @unique
+  normalizedHiveUsername  String                   @unique
+  displayName             String?
+  avatarUrl               String?
+  bio                     String?
+  platformRole            PlatformRole             @default(USER)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  foundedWorlds           World[]                  @relation("WorldFounder")
+  bibleVersions           WorldBibleVersion[]      @relation("WorldBibleVersionCreator")
+  loreEntries             LoreEntry[]              @relation("LoreEntryAuthor")
+  proposals               Proposal[]               @relation("ProposalAuthor")
+  votes                   AppVote[]                @relation("AppVoteVoter")
+  moderationReports       ModerationReport[]       @relation("ModerationReporter")
+  moderationReviews       ModerationReport[]       @relation("ModerationReviewer")
+  hiveReferences          HiveReference[]          @relation("HiveReferenceAuthor")
+  rewardRecords           RewardRecord[]
+  rewardSummaries         UserRewardSummary[]
+  reputationSnapshots     UserReputationSnapshot[]
+  worldMemberships        WorldMembership[]        @relation("WorldMembershipUser")
+  grantedWorldMemberships WorldMembership[]        @relation("WorldMembershipGrantor")
+  worldAuditLogs          WorldAuditLog[]          @relation("WorldAuditLogActor")
 
   @@index([normalizedHiveUsername])
+  @@index([platformRole])
 }
 
 model World {
@@ -149,9 +175,51 @@ model World {
   proposals         Proposal[]
   moderationReports ModerationReport[]
   searchIndexes     SearchIndex[]
+  memberships       WorldMembership[]
+  auditLogs         WorldAuditLog[]
 
   @@index([founderId])
   @@index([createdAt])
+}
+
+model WorldMembership {
+  id          String    @id @default(cuid())
+  worldId     String
+  world       World     @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  userId      String
+  user        User      @relation("WorldMembershipUser", fields: [userId], references: [id], onDelete: Restrict)
+  role        WorldRole
+  grantedById String?
+  grantedBy   User?     @relation("WorldMembershipGrantor", fields: [grantedById], references: [id], onDelete: SetNull)
+  grantedAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([worldId, userId])
+  @@index([worldId, role])
+  @@index([userId, role])
+  @@index([grantedById])
+  @@index([revokedAt])
+}
+
+model WorldAuditLog {
+  id         String           @id @default(cuid())
+  worldId    String
+  world      World            @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  actorId    String?
+  actor      User?            @relation("WorldAuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     WorldAuditAction
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime         @default(now())
+  /// Append-only audit trail for role changes, moderation actions, and rule-based status execution.
+
+  @@index([worldId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([worldId, action, createdAt])
+  @@index([targetType, targetId])
 }
 
 model WorldBibleVersion {
