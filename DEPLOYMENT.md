@@ -36,12 +36,23 @@ frontend use §3A and you're unblocked without waiting on an org install.)_
 
 ---
 
-## 3. Frontend → Vercel
+## 3. Frontend → Vercel (HiveLore is **Next.js** — use the Git integration)
 
-**A) GitHub Actions + token (recommended).** Create a Vercel project, add repo secrets
-`VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID`, add `deploy.yml` + `preview.yml`
-(see `HOSTING_GUIDE.md`). Push to `main` → auto-deploy; each PR → preview URL. No org app needed.
-**B)** Or the owner authorizes the Vercel app (scoped to hivelore) and you import it in Vercel.
+> ⚠️ **Because HiveLore is Next.js, use Vercel's native Git integration, NOT the CLI action.**
+> Vercel builds Next.js natively. The CLI `vercel deploy --prebuilt` step **hangs** on this monorepo
+> when the Vercel Root Directory isn't set to `apps/web` (or double-builds if Vercel's Git deploy is
+> also on) — that's the 1h+ stuck "Preview Web" run we saw. Fix it once via the dashboard, below.
+
+**A) Recommended — Vercel Git integration (no workflow files).**
+
+1. Import the `hivelore` repo in the Vercel dashboard.
+2. **Root Directory → `apps/web`**, Framework → Next.js, Output Directory → empty/default.
+3. **Delete `preview.yml` / `deploy.yml`** — Vercel then auto-builds every PR with a preview URL and
+   deploys `main`, with no GitHub Action to hang.
+
+**B) If you keep the GitHub Actions method:** set the Vercel project's **Root Directory = `apps/web`**,
+**disconnect Vercel's own Git auto-deploy** (Settings → Git) so the action and Vercel don't
+double-build, and make sure the workflows have `timeout-minutes` so a stuck deploy fails fast.
 
 ## 3b. Database → Supabase + Prisma _(Perla)_
 
