@@ -30,6 +30,34 @@ describe('HAF projection helpers', () => {
     assert.equal(normalized.operationType, 'comment');
   });
 
+  test('normalizes the live HAFBE operation wrapper shape', () => {
+    const operation = buildHiveLoreCommentOperation({
+      author: 'emberquill.dev',
+      permlink: 'canon-lore',
+      title: 'Canon Lore',
+      body: 'A verified entry.',
+      kind: 'canon_lore',
+      entityType: 'LORE_ENTRY',
+      entityId: 'lore-1',
+    });
+
+    const normalized = normalizeHafOperation({
+      block: 123,
+      trx_id: 'abc123',
+      op_pos: 2,
+      timestamp: '2026-07-25T18:00:00',
+      op: {
+        type: 'comment_operation',
+        value: operation.comment_operation,
+      },
+    });
+
+    assert.equal(normalized.blockNumber, 123n);
+    assert.equal(normalized.transactionId, 'abc123');
+    assert.equal(normalized.operationIndex, 2);
+    assert.deepEqual(normalized.operation, operation);
+  });
+
   test('upserts projected Hive events by transaction and operation index', async () => {
     const calls: unknown[] = [];
     const operation = buildHiveLoreCommentOperation({

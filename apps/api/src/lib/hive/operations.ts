@@ -16,8 +16,25 @@ import type {
   HiveLoreOperation,
 } from './types.js';
 
-const hiveAccountSchema = z.string().trim().min(3).max(16).toLowerCase();
-const permlinkSchema = z.string().trim().min(1).max(255);
+const hiveAccountLabelPattern = /^[a-z][a-z0-9-]{1,14}[a-z0-9]$/;
+
+export const hiveAccountNameSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(16)
+  .toLowerCase()
+  .refine(
+    (account) => account.split('.').every((label) => hiveAccountLabelPattern.test(label)),
+    'Invalid Hive account name.',
+  );
+
+export const hivePermlinkSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,253}[a-z0-9])?$/);
 
 const metadataSchema = z.object({
   app: z.string().min(1),
@@ -50,7 +67,7 @@ export const hiveLoreCustomJsonPayloadSchema = z.object({
     'revision_history',
     'beneficiary_metadata',
   ]),
-  signer: hiveAccountSchema,
+  signer: hiveAccountNameSchema,
   entityType: metadataSchema.shape.hivelore.shape.entityType,
   entityId: z.string().min(1),
   worldId: z.string().min(1).optional(),
@@ -87,12 +104,12 @@ export interface BuildHiveLoreCustomJsonInput {
 }
 
 export function buildHiveLoreCommentOperation(input: BuildHiveLoreCommentInput): HiveLoreOperation {
-  const author = hiveAccountSchema.parse(input.author);
-  const parentAuthor = input.parentAuthor ? hiveAccountSchema.parse(input.parentAuthor) : '';
-  const parentPermlink = permlinkSchema.parse(
+  const author = hiveAccountNameSchema.parse(input.author);
+  const parentAuthor = input.parentAuthor ? hiveAccountNameSchema.parse(input.parentAuthor) : '';
+  const parentPermlink = hivePermlinkSchema.parse(
     input.parentPermlink ?? input.tags?.[0] ?? 'hivelore',
   );
-  const permlink = permlinkSchema.parse(input.permlink);
+  const permlink = hivePermlinkSchema.parse(input.permlink);
   const tags = input.tags?.length ? input.tags : ['hivelore', input.kind.replaceAll('_', '-')];
 
   const metadata: HiveLoreMetadata = metadataSchema.parse({
@@ -127,7 +144,7 @@ export function buildHiveLoreCommentOperation(input: BuildHiveLoreCommentInput):
 export function buildHiveLoreCustomJsonOperation(
   input: BuildHiveLoreCustomJsonInput,
 ): HiveLoreOperation {
-  const signer = hiveAccountSchema.parse(input.signer);
+  const signer = hiveAccountNameSchema.parse(input.signer);
   const authority = input.authority ?? 'posting';
 
   const payload: HiveLoreCustomJsonPayload = hiveLoreCustomJsonPayloadSchema.parse({

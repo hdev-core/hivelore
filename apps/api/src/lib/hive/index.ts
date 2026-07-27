@@ -6,4 +6,5 @@ export * from './publishing.js';
 export * from './projection.js';
 export * from './signers.js';
 export * from './types.js';
+export * from './verification.js';
 export * from './wax-client.js';

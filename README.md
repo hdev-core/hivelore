@@ -538,7 +538,7 @@ The seed at `apps/api/prisma/seed.ts` is development-only and contains fictional
 
 Hive is authoritative for on-chain publication, authorship, rewards, beneficiary metadata, and blockchain events. `HiveReference`, `HiveEvent`, `RewardRecord`, and `UserRewardSummary` are indexed or derived database projections. A local PostgreSQL flag or timestamp is never sufficient to prove canon; canon requires an approved publication that has been published to Hive and indexed by HiveLore.
 
-All backend Hive access goes through `apps/api/src/lib/hive`. The module uses `@hiveio/wax` for transaction build, serialization, signing handoff, and broadcast; it exposes signer abstractions for Hive Keychain and HiveSigner flows without storing private keys. HAF reads use the configurable read-only `HAF_API_URL` client and are normalized before projection into PostgreSQL. The initial default is Hive's public HAF Block Explorer endpoint; self-hosted HAF remains deferred.
+All backend Hive access goes through `apps/api/src/lib/hive`. The module uses `@hiveio/wax` for transaction build, serialization, signing handoff, and broadcast; it exposes signer abstractions for Hive Keychain and HiveSigner flows without storing private keys. HAF reads use the configurable read-only `HAF_API_URL` client and are normalized before projection into PostgreSQL. The initial default is Hive's public HAF Block Explorer endpoint, using documented HAFBE paths such as `/last-synced-block`, `/block-search`, and `/accounts/{account}/operations/comments/{permlink}`; self-hosted HAF remains deferred.
 
 ## Run Locally
 

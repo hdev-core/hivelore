@@ -1,11 +1,6 @@
-import type { HiveEventType } from '../../generated/prisma/enums.js';
-import { parseHiveLoreCommentMetadata, parseHiveLoreCustomJsonPayload } from './operations.js';
-import type {
-  HafOperationRow,
-  HiveLoreOperation,
-  HiveOperationVerification,
-  NormalizedHiveOperation,
-} from './types.js';
+import type { HafOperationRow, HiveLoreOperation, NormalizedHiveOperation } from './types.js';
+
+type HiveProjectionEventType = 'COMMENT' | 'CUSTOM_JSON';
 
 export interface HiveProjectionDatabase {
   hiveEvent: {
@@ -15,13 +10,13 @@ export interface HiveProjectionDatabase {
         blockNumber: bigint;
         transactionId: string;
         operationIndex: number;
-        eventType: HiveEventType;
+        eventType: HiveProjectionEventType;
         blockchainTimestamp: Date;
         payload: unknown;
       };
       update: {
         blockNumber: bigint;
-        eventType: HiveEventType;
+        eventType: HiveProjectionEventType;
         blockchainTimestamp: Date;
         payload: unknown;
       };
@@ -52,67 +47,6 @@ export function normalizeHafOperation(row: HafOperationRow): NormalizedHiveOpera
     blockchainTimestamp: new Date(requiredString(row.timestamp ?? row.created_at, 'timestamp')),
     operationType,
     operation,
-  };
-}
-
-export function verifyHiveLoreOperation(input: {
-  operation: HiveLoreOperation;
-  expectedSigner?: string;
-}): HiveOperationVerification {
-  const customJsonPayload = parseHiveLoreCustomJsonPayload(input.operation);
-
-  if (customJsonPayload) {
-    const actualSigner = getCustomJsonSigner(input.operation);
-    const expectedSigner = input.expectedSigner?.trim().toLowerCase();
-
-    if (expectedSigner && actualSigner !== expectedSigner) {
-      return {
-        ok: false,
-        reason: 'Signer does not match expected Hive account.',
-      };
-    }
-
-    if (actualSigner !== customJsonPayload.signer) {
-      return {
-        ok: false,
-        reason: 'custom_json signer does not match HiveLore payload signer.',
-      };
-    }
-
-    return {
-      ok: true,
-      signer: actualSigner,
-      entityType: customJsonPayload.entityType,
-      entityId: customJsonPayload.entityId,
-      payload: customJsonPayload,
-    };
-  }
-
-  const commentMetadata = parseHiveLoreCommentMetadata(input.operation);
-
-  if (commentMetadata && input.operation.comment_operation) {
-    const actualSigner = input.operation.comment_operation.author;
-    const expectedSigner = input.expectedSigner?.trim().toLowerCase();
-
-    if (expectedSigner && actualSigner !== expectedSigner) {
-      return {
-        ok: false,
-        reason: 'Comment author does not match expected Hive account.',
-      };
-    }
-
-    return {
-      ok: true,
-      signer: actualSigner,
-      entityType: commentMetadata.hivelore.entityType,
-      entityId: commentMetadata.hivelore.entityId,
-      payload: commentMetadata,
-    };
-  }
-
-  return {
-    ok: false,
-    reason: 'Operation is not a verified HiveLore comment or custom_json payload.',
   };
 }
 
@@ -155,6 +89,22 @@ function unwrapHafOperation(row: HafOperationRow): HiveLoreOperation {
     return source as HiveLoreOperation;
   }
 
+  if ('type' in source && 'value' in source) {
+    const typedOperation = source as { type: unknown; value: unknown };
+
+    if (typedOperation.type === 'comment_operation') {
+      return {
+        comment_operation: typedOperation.value as HiveLoreOperation['comment_operation'],
+      };
+    }
+
+    if (typedOperation.type === 'custom_json_operation') {
+      return {
+        custom_json_operation: typedOperation.value as HiveLoreOperation['custom_json_operation'],
+      };
+    }
+  }
+
   if ('comment' in source) {
     return {
       comment_operation: (source as { comment: unknown })
@@ -186,19 +136,9 @@ function getOperationType(
   return null;
 }
 
-function getCustomJsonSigner(operation: HiveLoreOperation): string {
-  const customJson = operation.custom_json_operation;
-
-  if (!customJson) {
-    return '';
-  }
-
-  const signer = customJson.required_posting_auths[0] ?? customJson.required_auths[0];
-
-  return signer?.trim().toLowerCase() ?? '';
-}
-
-function toHiveEventType(operationType: NormalizedHiveOperation['operationType']): HiveEventType {
+function toHiveEventType(
+  operationType: NormalizedHiveOperation['operationType'],
+): HiveProjectionEventType {
   return operationType === 'comment' ? 'COMMENT' : 'CUSTOM_JSON';
 }
 

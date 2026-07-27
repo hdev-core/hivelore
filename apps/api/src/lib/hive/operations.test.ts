@@ -7,7 +7,7 @@ import {
   parseHiveLoreCommentMetadata,
   parseHiveLoreCustomJsonPayload,
 } from './operations.js';
-import { verifyHiveLoreOperation } from './projection.js';
+import { verifyHiveLoreOperation } from './verification.js';
 
 describe('HiveLore Hive operations', () => {
   test('builds a WAX comment operation with normalized HiveLore metadata', () => {
@@ -54,6 +54,36 @@ describe('HiveLore Hive operations', () => {
 
     assert.equal(payload?.action, 'canon_approval');
     assert.equal(payload?.signer, 'emberquill.dev');
+  });
+
+  test('rejects invalid Hive account names and permlinks', () => {
+    assert.throws(
+      () =>
+        buildHiveLoreCommentOperation({
+          author: 'bad_name',
+          permlink: 'world-seed',
+          title: 'World Seed',
+          body: 'The world begins here.',
+          kind: 'world_seed',
+          entityType: 'WORLD_SEED',
+          entityId: 'world-1',
+        }),
+      /Invalid Hive account name/,
+    );
+
+    assert.throws(
+      () =>
+        buildHiveLoreCommentOperation({
+          author: 'emberquill.dev',
+          permlink: 'Bad Permlink',
+          title: 'World Seed',
+          body: 'The world begins here.',
+          kind: 'world_seed',
+          entityType: 'WORLD_SEED',
+          entityId: 'world-1',
+        }),
+      /Invalid string/,
+    );
   });
 
   test('verifies signer and HiveLore payload before projection', () => {

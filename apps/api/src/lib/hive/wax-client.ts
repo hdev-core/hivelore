@@ -19,16 +19,39 @@ import type {
   SignedHiveTransaction,
 } from './types.js';
 
+interface WaxTransactionLike {
+  pushOperation(operation: HiveLoreOperation): WaxTransactionLike;
+  validate(): void;
+  toApiJson(): ApiTransaction;
+  toBinaryForm(stripToUnsignedTransaction?: boolean): string;
+  readonly requiredAuthorities: unknown;
+  readonly id: string;
+}
+
+interface WaxChainLike {
+  createTransaction(expirationTime?: unknown): Promise<WaxTransactionLike>;
+  broadcast(transaction: ApiTransaction): Promise<void>;
+}
+
+interface WaxFoundationLike {
+  createTransactionFromJson(transaction: ApiTransaction): WaxTransactionLike;
+  convertTransactionToBinaryForm(transaction: ApiTransaction, stripSignatures?: boolean): string;
+}
+
 export interface HiveWaxClientOptions {
   apiEndpoint?: string;
   appName?: string;
   apiTimeoutMs?: number;
+  createChain?: (options: Partial<IWaxOptionsChain>) => Promise<WaxChainLike>;
+  createFoundation?: (options: { chainId: string }) => Promise<WaxFoundationLike>;
 }
 
 export class HiveWaxClient {
   private readonly chainOptions: Partial<IWaxOptionsChain>;
-  private chainPromise?: Promise<IHiveChainInterface>;
-  private foundationPromise?: Promise<IWaxBaseInterface>;
+  private readonly createChain: (options: Partial<IWaxOptionsChain>) => Promise<WaxChainLike>;
+  private readonly createFoundation: (options: { chainId: string }) => Promise<WaxFoundationLike>;
+  private chainPromise?: Promise<WaxChainLike>;
+  private foundationPromise?: Promise<WaxFoundationLike>;
 
   constructor(options: HiveWaxClientOptions = {}) {
     this.chainOptions = {
@@ -37,6 +60,8 @@ export class HiveWaxClient {
       waxApiCaller: options.appName ?? DEFAULT_HIVELORE_APP_ID,
       apiTimeout: options.apiTimeoutMs ?? 10_000,
     };
+    this.createChain = options.createChain ?? createDefaultChain;
+    this.createFoundation = options.createFoundation ?? createDefaultFoundation;
   }
 
   async buildTransaction(operations: HiveLoreOperation[]): Promise<BuiltHiveTransaction> {
@@ -90,16 +115,26 @@ export class HiveWaxClient {
   }
 
   private getChain() {
-    this.chainPromise ??= createHiveChain(this.chainOptions);
+    this.chainPromise ??= this.createChain(this.chainOptions);
 
     return this.chainPromise;
   }
 
   private getFoundation() {
-    this.foundationPromise ??= createWaxFoundation({
+    this.foundationPromise ??= this.createFoundation({
       chainId: this.chainOptions.chainId ?? HIVE_MAINNET_CHAIN_ID,
     });
 
     return this.foundationPromise;
   }
+}
+
+async function createDefaultChain(
+  options: Partial<IWaxOptionsChain>,
+): Promise<IHiveChainInterface> {
+  return createHiveChain(options);
+}
+
+async function createDefaultFoundation(options: { chainId: string }): Promise<IWaxBaseInterface> {
+  return createWaxFoundation(options);
 }

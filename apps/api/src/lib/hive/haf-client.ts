@@ -16,22 +16,29 @@ export class HafClient {
   }
 
   async getHeadBlock(): Promise<number> {
-    const headBlock = await this.getJson<{ head_block_num?: number; block_num?: number }>(
-      '/headblock',
-    );
-    const value = headBlock.head_block_num ?? headBlock.block_num;
+    return this.getLatestSyncedBlock();
+  }
 
-    if (value === undefined || !Number.isInteger(value)) {
-      throw new Error('HAF headblock response did not include a block number.');
+  async getLatestSyncedBlock(): Promise<number> {
+    const value = await this.getJson<unknown>('/last-synced-block');
+
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+      throw new Error('HAF last-synced-block response did not include a block number.');
     }
 
-    return Number(value);
+    return value;
   }
 
   async getCommentOperations(author: string, permlink: string): Promise<HafOperationRow[]> {
-    return this.getJson<HafOperationRow[]>(
+    const response = await this.getJson<{
+      total_operations: number;
+      total_pages: number;
+      operations_result: HafOperationRow[];
+    }>(
       `/accounts/${encodeURIComponent(author)}/operations/comments/${encodeURIComponent(permlink)}`,
     );
+
+    return response.operations_result;
   }
 
   async searchBlocks(params: {
