@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 
+import { AppShell } from '@/components/layout/app-shell';
 import { AppProviders } from '@/providers/app-providers';
 import './globals.css';
+import '@/components/editor/editor.css';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -50,7 +52,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
-        <AppProviders>{children}</AppProviders>
+        <AppProviders>
+          <AppShell>{children}</AppShell>
+        </AppProviders>
       </body>
     </html>
   );

@@ -5,7 +5,11 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  issues: write
+  pull-requests: write
+
+env:
+  VERCEL_CLI_VERSION: 50.28.0
 
 concurrency:
   group: vercel-preview-${{ github.event.pull_request.number }}
@@ -15,6 +19,7 @@ jobs:
   preview:
     name: Vercel Preview
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -30,22 +35,81 @@ jobs:
         run: npm ci
 
       - name: Pull Vercel environment
-        run: npx vercel pull --yes --environment=preview --token="${VERCEL_TOKEN}"
+        timeout-minutes: 3
+        run: npx vercel@${VERCEL_CLI_VERSION} pull --yes --environment=preview --token="${VERCEL_TOKEN}"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Vercel artifact
-        run: npx vercel build --token="${VERCEL_TOKEN}"
+        timeout-minutes: 10
+        run: npx vercel@${VERCEL_CLI_VERSION} build --token="${VERCEL_TOKEN}"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy preview to Vercel
-        run: npx vercel deploy --prebuilt --token="${VERCEL_TOKEN}"
+        id: deploy
+        timeout-minutes: 5
+        run: |
+          url="$(npx vercel@${VERCEL_CLI_VERSION} deploy --prebuilt --token="${VERCEL_TOKEN}")"
+          echo "url=${url}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Vercel Preview"
+            echo ""
+            echo "- URL: ${url}"
+            echo "- PR: #${{ github.event.pull_request.number }}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Root Directory: apps/web"
+          } >> "${GITHUB_STEP_SUMMARY}"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Comment preview URL
+        continue-on-error: true
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const marker = '<!-- hivelore-vercel-preview -->';
+            const body = [
+              marker,
+              'Vercel preview is ready:',
+              '',
+              process.env.PREVIEW_URL,
+              '',
+              `Commit: ${context.sha}`,
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user.type === 'Bot' && comment.body.includes(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}

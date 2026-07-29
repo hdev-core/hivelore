@@ -31,11 +31,13 @@ NEXT_PUBLIC_API_BASE_URL
 Production deploys run from `main` through `.github/workflows/deploy.yml`.
 Pull requests get preview deploys through `.github/workflows/preview.yml`.
 
-The Vercel project should use the repository root. The root `vercel.json` builds only the web workspace:
+The Vercel project should use `apps/web` as its Root Directory. The web app's `apps/web/vercel.json` builds the web workspace from the monorepo root:
 
 ```text
 npm run build --workspace=@hivelore/web
 ```
+
+The GitHub Actions Vercel CLI commands run from the repository checkout root. Do not add `--cwd=apps/web` while the Vercel project Root Directory is also `apps/web`, because the CLI will resolve the app path twice.
 
 ## Supabase and Prisma
 
