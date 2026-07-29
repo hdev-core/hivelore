@@ -1,5 +1,5 @@
 import { DEFAULT_HAF_API_URL } from './constants.js';
-import type { HafOperationRow } from './types.js';
+import type { HafBlockSearchPage, HafOperationRow } from './types.js';
 
 export interface HafClientOptions {
   baseUrl?: string;
@@ -47,14 +47,16 @@ export class HafClient {
     toBlock?: number;
     page?: number;
     pageSize?: number;
-  }): Promise<unknown> {
-    return this.getJson('/block-search', {
+  }): Promise<HafBlockSearchPage> {
+    const response = await this.getJson<unknown>('/block-search', {
       'operation-types': params.operationTypes?.join(','),
       'from-block': params.fromBlock,
       'to-block': params.toBlock,
       page: params.page,
       'page-size': params.pageSize,
     });
+
+    return parseBlockSearchPage(response);
   }
 
   private async getJson<T>(
@@ -77,4 +79,43 @@ export class HafClient {
 
     return (await response.json()) as T;
   }
+}
+
+export function parseBlockSearchPage(response: unknown): HafBlockSearchPage {
+  if (Array.isArray(response)) {
+    return { operations: response as HafOperationRow[] };
+  }
+
+  if (!response || typeof response !== 'object') {
+    throw new Error('HAF block-search response was not an object.');
+  }
+
+  const source = response as Record<string, unknown>;
+  const operations =
+    source.operations_result ?? source.operations ?? source.results ?? source.rows ?? source.data;
+
+  if (!Array.isArray(operations)) {
+    throw new Error('HAF block-search response did not include operation rows.');
+  }
+
+  const page = optionalInteger(source.page);
+  const totalPages = optionalInteger(source.total_pages ?? source.totalPages);
+
+  return {
+    operations: operations as HafOperationRow[],
+    ...(page === undefined ? {} : { page }),
+    ...(totalPages === undefined ? {} : { totalPages }),
+  };
+}
+
+function optionalInteger(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const numericValue = typeof value === 'string' ? Number(value) : value;
+
+  return typeof numericValue === 'number' && Number.isInteger(numericValue)
+    ? numericValue
+    : undefined;
 }

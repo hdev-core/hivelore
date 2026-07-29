@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { HafClient } from './haf-client.js';
+import { HafClient, parseBlockSearchPage } from './haf-client.js';
 
 function createJsonResponse(body: unknown, ok = true): Response {
   return {
@@ -64,5 +64,28 @@ describe('HAF client', () => {
     assert.deepEqual(urls, [
       'https://example.test/hafbe-api/accounts/alice/operations/comments/hello',
     ]);
+  });
+
+  test('parses block-search wrappers into operation pages', () => {
+    assert.deepEqual(
+      parseBlockSearchPage({
+        page: '2',
+        total_pages: '3',
+        operations_result: [
+          {
+            block: 123,
+          },
+        ],
+      }),
+      {
+        page: 2,
+        totalPages: 3,
+        operations: [
+          {
+            block: 123,
+          },
+        ],
+      },
+    );
   });
 });
