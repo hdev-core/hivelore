@@ -82,6 +82,12 @@ export interface HafOperationRow {
   body?: unknown;
 }
 
+export interface HafBlockSearchPage {
+  operations: HafOperationRow[];
+  page?: number;
+  totalPages?: number;
+}
+
 export interface NormalizedHiveOperation {
   blockNumber: bigint;
   transactionId: string;

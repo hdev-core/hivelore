@@ -540,6 +540,25 @@ Hive is authoritative for on-chain publication, authorship, rewards, beneficiary
 
 All backend Hive access goes through `apps/api/src/lib/hive`. The module uses `@hiveio/wax` for transaction build, serialization, signing handoff, and broadcast; it exposes signer abstractions for Hive Keychain and HiveSigner flows without storing private keys. HAF reads use the configurable read-only `HAF_API_URL` client and are normalized before projection into PostgreSQL. The initial default is Hive's public HAF Block Explorer endpoint, using documented HAFBE paths such as `/last-synced-block`, `/block-search`, and `/accounts/{account}/operations/comments/{permlink}`; self-hosted HAF remains deferred.
 
+### Standalone HAF Indexer
+
+The API workspace includes a resumable HAF sync skeleton. It reads HAF block-search pages, projects supported HiveLore operations into `HiveEvent`, and stores its durable resume point in `IndexerWatermark`.
+
+```bash
+npm run indexer:run --workspace=@hivelore/api
+```
+
+Optional API environment variables:
+
+```env
+INDEXER_NAME=hivelore-haf
+INDEXER_START_BLOCK=1
+INDEXER_BATCH_SIZE=100
+INDEXER_MAX_BLOCKS_PER_RUN=1000
+```
+
+Run `npm run db:generate` after pulling schema changes, then apply the committed Prisma migrations before running it against a real database.
+
 ## Run Locally
 
 ```bash

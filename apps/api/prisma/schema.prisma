@@ -369,6 +369,19 @@ model HiveEvent {
   @@index([blockchainTimestamp])
 }
 
+model IndexerWatermark {
+  name                        String    @id
+  lastProcessedBlock          BigInt    @default(0)
+  lastProcessedOperationIndex Int       @default(-1)
+  lastRunStartedAt            DateTime?
+  lastRunFinishedAt           DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  /// Durable resume point for rebuildable indexer processes.
+
+  @@index([lastProcessedBlock, lastProcessedOperationIndex])
+}
+
 model RewardRecord {
   id              String         @id @default(cuid())
   userId          String
