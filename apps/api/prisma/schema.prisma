@@ -131,33 +131,158 @@ enum WorldAuditAction {
   AI_WARNING_RESOLVED
 }
 
+enum AuthProvider {
+  KEYCHAIN
+  HIVESIGNER
+}
+
+enum ExternalIdentityProvider {
+  GOOGLE
+}
+
+enum HiveProvisioningStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  NOT_CONFIGURED
+}
+
+enum RcDelegationStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  NOT_CONFIGURED
+}
+
 model User {
-  id                      String                   @id @default(cuid())
-  hiveUsername            String                   @unique
-  normalizedHiveUsername  String                   @unique
+  id                      String                    @id @default(cuid())
+  hiveUsername            String                    @unique
+  normalizedHiveUsername  String                    @unique
   displayName             String?
   avatarUrl               String?
   bio                     String?
-  platformRole            PlatformRole             @default(USER)
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
-  foundedWorlds           World[]                  @relation("WorldFounder")
-  bibleVersions           WorldBibleVersion[]      @relation("WorldBibleVersionCreator")
-  loreEntries             LoreEntry[]              @relation("LoreEntryAuthor")
-  proposals               Proposal[]               @relation("ProposalAuthor")
-  votes                   AppVote[]                @relation("AppVoteVoter")
-  moderationReports       ModerationReport[]       @relation("ModerationReporter")
-  moderationReviews       ModerationReport[]       @relation("ModerationReviewer")
-  hiveReferences          HiveReference[]          @relation("HiveReferenceAuthor")
+  platformRole            PlatformRole              @default(USER)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  foundedWorlds           World[]                   @relation("WorldFounder")
+  bibleVersions           WorldBibleVersion[]       @relation("WorldBibleVersionCreator")
+  loreEntries             LoreEntry[]               @relation("LoreEntryAuthor")
+  proposals               Proposal[]                @relation("ProposalAuthor")
+  votes                   AppVote[]                 @relation("AppVoteVoter")
+  moderationReports       ModerationReport[]        @relation("ModerationReporter")
+  moderationReviews       ModerationReport[]        @relation("ModerationReviewer")
+  hiveReferences          HiveReference[]           @relation("HiveReferenceAuthor")
   rewardRecords           RewardRecord[]
   rewardSummaries         UserRewardSummary[]
   reputationSnapshots     UserReputationSnapshot[]
-  worldMemberships        WorldMembership[]        @relation("WorldMembershipUser")
-  grantedWorldMemberships WorldMembership[]        @relation("WorldMembershipGrantor")
-  worldAuditLogs          WorldAuditLog[]          @relation("WorldAuditLogActor")
+  worldMemberships        WorldMembership[]         @relation("WorldMembershipUser")
+  grantedWorldMemberships WorldMembership[]         @relation("WorldMembershipGrantor")
+  worldAuditLogs          WorldAuditLog[]           @relation("WorldAuditLogActor")
+  authChallenges          AuthChallenge[]
+  refreshSessions         RefreshSession[]
+  externalIdentityLinks   ExternalIdentityLink[]
+  provisioningRequests    HiveProvisioningRequest[]
+  rcDelegations           RcDelegation[]
 
   @@index([normalizedHiveUsername])
   @@index([platformRole])
+}
+
+model AuthChallenge {
+  id                     String       @id @default(cuid())
+  userId                 String?
+  user                   User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  normalizedHiveUsername String
+  provider               AuthProvider
+  intent                 String       @default("authentication")
+  challengeHash          String
+  nonceHash              String
+  issuedAt               DateTime
+  expiresAt              DateTime
+  consumedAt             DateTime?
+  createdAt              DateTime     @default(now())
+
+  @@unique([challengeHash])
+  @@index([normalizedHiveUsername, provider])
+  @@index([expiresAt])
+  @@index([consumedAt])
+  @@index([userId])
+}
+
+model RefreshSession {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionFamilyId  String
+  refreshTokenHash String          @unique
+  createdAt        DateTime        @default(now())
+  expiresAt        DateTime
+  rotatedAt        DateTime?
+  revokedAt        DateTime?
+  replacedById     String?         @unique
+  replacedBy       RefreshSession? @relation("RefreshSessionRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces         RefreshSession? @relation("RefreshSessionRotation")
+  lastUsedAt       DateTime?
+  userAgent        String?
+  ipAddress        String?
+
+  @@index([userId])
+  @@index([sessionFamilyId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+model ExternalIdentityLink {
+  id                   String                    @id @default(cuid())
+  userId               String
+  user                 User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider             ExternalIdentityProvider
+  providerSubject      String
+  verifiedEmail        String?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  provisioningRequests HiveProvisioningRequest[]
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model HiveProvisioningRequest {
+  id                     String                 @id @default(cuid())
+  userId                 String?
+  user                   User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  externalIdentityLinkId String?
+  externalIdentityLink   ExternalIdentityLink?  @relation(fields: [externalIdentityLinkId], references: [id], onDelete: SetNull)
+  requestedHiveUsername  String
+  status                 HiveProvisioningStatus @default(NOT_CONFIGURED)
+  failureReason          String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  @@index([userId])
+  @@index([externalIdentityLinkId])
+  @@index([status])
+}
+
+model RcDelegation {
+  id               String             @id @default(cuid())
+  userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hiveUsername     String
+  delegatorAccount String
+  amount           String
+  status           RcDelegationStatus @default(NOT_CONFIGURED)
+  transactionId    String?
+  operationIndex   Int?
+  idempotencyKey   String             @unique
+  failureReason    String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([hiveUsername])
+  @@index([status])
 }
 
 model World {

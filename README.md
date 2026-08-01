@@ -190,6 +190,16 @@ Authentication flow:
 
 Private keys are never stored. Authentication is entirely non-custodial.
 
+HiveLore supports Hive Keychain and HiveSigner through the same backend challenge-response flow. The API creates a short-lived, single-use, human-readable challenge containing the username, nonce, issued timestamp, expiration timestamp, configured audience, and a statement that signing does not authorize a Hive transaction or transfer. Users sign the exact challenge with posting authority. The backend verifies the signature against the account's current Hive posting authority from a trusted Hive RPC endpoint before creating or updating the local user projection.
+
+The current verifier supports a single posting public key whose configured key weight satisfies the account's posting threshold. Accounts requiring multiple posting signatures or delegated account authorities are not accepted by the login flow yet; that avoids falsely authenticating a key that cannot independently satisfy posting authority.
+
+Successful authentication issues a short-lived access JWT and a long-lived opaque refresh token. Refresh tokens are stored only as one-way HMAC hashes in PostgreSQL, rotate on every successful refresh, and revoke the session family if a rotated token is reused. Browser refresh tokens are set in an `httpOnly` cookie and are not returned in JSON responses; access tokens are returned to the client for authenticated API requests. Logout is idempotent and revokes the submitted refresh session or session family when requested. Already-issued access JWTs are stateless and remain usable until their short expiration unless future server-side revocation checks are added.
+
+HiveLore never requests, receives, logs, stores, or returns Hive posting, active, owner, or memo private keys. Login proves identity only. It does not grant the backend permission to publish content, vote, transfer funds, or perform any on-chain action for the user.
+
+Google authentication is an optional extension and is disabled by default. When disabled, Google routes return a not-enabled response and no Google environment variables are required. The schema includes Google identity-linking and provisioning state boundaries, but Google OAuth, automatic Hive account provisioning, and RC delegation are not part of the base MVP unless separately configured and implemented with a secure non-custodial key-delivery process.
+
 ---
 
 # Governance
@@ -296,6 +306,16 @@ REST API modules:
 - Search
 - Profiles
 - Moderation
+
+Implemented authentication endpoints:
+
+- `POST /auth/challenge`: accepts a Hive username and `keychain` or `hivesigner` provider, creates a five-minute challenge, and returns only the challenge ID, exact message, expiration, normalized Hive username, and provider.
+- `POST /auth/verify`: accepts the challenge ID, username, provider, exact message, signature, and optional public key, verifies posting authority through Hive RPC, consumes the challenge, upserts the user projection, returns an access token, and sets the refresh cookie.
+- `POST /auth/refresh`: validates the opaque refresh token from the `httpOnly` cookie or request body, checks trusted browser origins for cookie-based refreshes, rotates it, revokes the previous token, returns a new access token, and revokes the session family on reuse detection.
+- `POST /auth/logout`: revokes the current refresh session or session family when requested and clears the refresh cookie. Repeated logout is safe.
+- `GET /me`: requires a valid access JWT and returns the safe canonical Hive-linked user representation.
+
+Google auth routes are not registered as a default login path. With `GOOGLE_AUTH_ENABLED=false`, `/auth/google/*` returns a not-enabled response. Enabling Google currently exposes the guarded boundary only; Google OAuth account linking and automatic Hive provisioning remain deferred until secure non-custodial account creation and key delivery are specified.
 
 ---
 
@@ -459,10 +479,33 @@ DATABASE_URL="postgresql://USER:PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=tru
 # Direct PostgreSQL connection used for Prisma migrations and administrative operations.
 DIRECT_URL="postgresql://USER:PASSWORD@DIRECT_HOST:5432/postgres"
 
+# Hive authentication and secure session settings.
+AUTH_JWT_SECRET="replace-with-a-long-random-secret"
+AUTH_JWT_ISSUER="hivelore"
+AUTH_JWT_AUDIENCE="hivelore-web"
+AUTH_ACCESS_TOKEN_TTL_SECONDS=900
+AUTH_REFRESH_TOKEN_TTL_SECONDS=1209600
+AUTH_CHALLENGE_TTL_SECONDS=300
+AUTH_COOKIE_DOMAIN=
+AUTH_COOKIE_SECURE=false
+HIVE_AUTH_AUDIENCE="hivelore-local-api"
+
 # Hive integration defaults to public development endpoints.
 HIVE_RPC_URL="https://api.hive.blog"
 HAF_API_URL="https://api.hive.blog/hafbe-api"
 HIVELORE_APP_ID="hivelore/0.1.0"
+
+# Optional Google-to-Hive linking and onboarding. Disabled for the base MVP.
+GOOGLE_AUTH_ENABLED=false
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=
+GOOGLE_HIVE_PROVISIONING_ENABLED=false
+
+# Optional RC delegation. Disabled for the base MVP.
+HIVE_RC_DELEGATION_ENABLED=false
+HIVE_RC_DELEGATOR_ACCOUNT=
+HIVE_RC_DELEGATION_AMOUNT=
 ```
 
 `DATABASE_URL` is the pooled connection used by normal API queries. `DIRECT_URL` is the direct PostgreSQL connection Prisma uses for migrations and administrative operations. Supabase service-role keys are not required for Prisma's PostgreSQL connection. Hive private keys must never be stored.

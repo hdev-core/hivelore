@@ -1,4 +1,5 @@
 import { ApiError, type ApiErrorBody } from '@/lib/api/errors';
+import { env } from '@/lib/env';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type JsonBody = Record<string, unknown> | Array<unknown> | string | number | boolean | null;
@@ -9,14 +10,8 @@ type RequestOptions<TBody = JsonBody> = {
   signal?: AbortSignal | null;
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
-
 function getApiBaseUrl() {
-  if (!API_BASE_URL) {
-    throw new Error('NEXT_PUBLIC_API_BASE_URL is not configured.');
-  }
-
-  return API_BASE_URL;
+  return env.apiBaseUrl;
 }
 
 function buildUrl(path: string) {
@@ -71,6 +66,7 @@ async function request<TResponse, TBody = JsonBody>(
   }
 
   const requestInit: RequestInit = {
+    credentials: 'include',
     method,
     headers,
   };
