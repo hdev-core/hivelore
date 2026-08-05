@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { parseEnv } from './env.js';
+process.env.NODE_ENV = 'test';
+
+const { parseEnv } = await import('./env.js');
 
 describe('API environment validation', () => {
   test('parses false feature flags as false', () => {
     const env = parseEnv({
       AUTH_COOKIE_SECURE: 'false',
+      AUTH_JWT_SECRET: 'test-jwt-secret-that-is-long-enough',
+      AUTH_REFRESH_SECRET: 'test-refresh-secret-that-is-long-enough',
       GOOGLE_AUTH_ENABLED: 'false',
       GOOGLE_HIVE_PROVISIONING_ENABLED: 'false',
       HIVE_RC_DELEGATION_ENABLED: 'false',
@@ -25,12 +29,16 @@ describe('API environment validation', () => {
         parseEnv({
           GOOGLE_AUTH_ENABLED: 'true',
           NODE_ENV: 'development',
+          AUTH_JWT_SECRET: 'test-jwt-secret-that-is-long-enough',
+          AUTH_REFRESH_SECRET: 'test-refresh-secret-that-is-long-enough',
         }),
       /Google auth is enabled/,
     );
 
     assert.equal(
       parseEnv({
+        AUTH_JWT_SECRET: 'test-jwt-secret-that-is-long-enough',
+        AUTH_REFRESH_SECRET: 'test-refresh-secret-that-is-long-enough',
         GOOGLE_AUTH_ENABLED: 'false',
         NODE_ENV: 'development',
       }).GOOGLE_AUTH_ENABLED,
@@ -38,13 +46,22 @@ describe('API environment validation', () => {
     );
   });
 
-  test('rejects the development JWT secret in production', () => {
+  test('rejects missing auth secrets in every non-test environment', () => {
     assert.throws(
       () =>
         parseEnv({
-          NODE_ENV: 'production',
+          NODE_ENV: 'development',
         }),
       /AUTH_JWT_SECRET/,
     );
+  });
+
+  test('allows missing auth secrets only in test', () => {
+    const env = parseEnv({
+      NODE_ENV: 'test',
+    });
+
+    assert.match(env.AUTH_JWT_SECRET, /test-only/);
+    assert.match(env.AUTH_REFRESH_SECRET, /test-only/);
   });
 });

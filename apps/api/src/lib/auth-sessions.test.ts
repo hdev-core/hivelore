@@ -86,7 +86,13 @@ function createDatabase() {
       async findUnique(args: {
         where: { refreshTokenHash?: string; id?: string };
         include?: { user: true };
-        select?: { id: true; sessionFamilyId: true };
+        select?: {
+          expiresAt?: true;
+          id?: true;
+          revokedAt?: true;
+          sessionFamilyId?: true;
+          userId?: true;
+        };
       }) {
         const session = [...sessions.values()].find((candidate) => {
           if (args.where.refreshTokenHash) {
@@ -102,8 +108,11 @@ function createDatabase() {
 
         if (args.select) {
           return {
-            id: session.id,
-            sessionFamilyId: session.sessionFamilyId,
+            ...(args.select.expiresAt ? { expiresAt: session.expiresAt } : {}),
+            ...(args.select.id ? { id: session.id } : {}),
+            ...(args.select.revokedAt ? { revokedAt: session.revokedAt } : {}),
+            ...(args.select.sessionFamilyId ? { sessionFamilyId: session.sessionFamilyId } : {}),
+            ...(args.select.userId ? { userId: session.userId } : {}),
           };
         }
 

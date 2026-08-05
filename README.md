@@ -481,13 +481,14 @@ DIRECT_URL="postgresql://USER:PASSWORD@DIRECT_HOST:5432/postgres"
 
 # Hive authentication and secure session settings.
 AUTH_JWT_SECRET="replace-with-a-long-random-secret"
+AUTH_REFRESH_SECRET="replace-with-a-different-long-random-secret"
 AUTH_JWT_ISSUER="hivelore"
 AUTH_JWT_AUDIENCE="hivelore-web"
 AUTH_ACCESS_TOKEN_TTL_SECONDS=900
 AUTH_REFRESH_TOKEN_TTL_SECONDS=1209600
 AUTH_CHALLENGE_TTL_SECONDS=300
 AUTH_COOKIE_DOMAIN=
-AUTH_COOKIE_SECURE=false
+AUTH_COOKIE_SECURE=true
 HIVE_AUTH_AUDIENCE="hivelore-local-api"
 
 # Hive integration defaults to public development endpoints.

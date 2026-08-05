@@ -64,6 +64,14 @@ export async function createAuthChallenge(
     nonce: input.nonce,
     username: normalizedHiveUsername,
   });
+  await database.authChallenge.deleteMany({
+    where: {
+      expiresAt: {
+        lt: issuedAt,
+      },
+    },
+  });
+
   const challenge = await database.authChallenge.create({
     data: {
       challengeHash: sha256Hmac(message, input.hmacSecret),

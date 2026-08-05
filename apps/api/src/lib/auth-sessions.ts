@@ -72,6 +72,20 @@ type UserProjectionDatabase = Pick<PrismaClient, 'user'>;
 type SessionIssueDatabase = Pick<PrismaClient, 'refreshSession'>;
 type SessionRotationDatabase = Pick<PrismaClient, '$transaction' | 'refreshSession'>;
 type SessionRevocationDatabase = Pick<PrismaClient, 'refreshSession'>;
+export type SessionVerificationDatabase = {
+  refreshSession: {
+    findUnique(args: {
+      where: {
+        id: string;
+      };
+      select: {
+        expiresAt: true;
+        revokedAt: true;
+        userId: true;
+      };
+    }): Promise<Pick<RefreshSession, 'expiresAt' | 'revokedAt' | 'userId'> | null>;
+  };
+};
 
 export async function upsertHiveUser(
   database: UserProjectionDatabase,
@@ -301,4 +315,29 @@ async function revokeSessionFamily(
 
 export function isRefreshSessionValid(session: Pick<RefreshSession, 'expiresAt' | 'revokedAt'>) {
   return !session.revokedAt && session.expiresAt > new Date();
+}
+
+export async function isRefreshSessionActive(
+  database: SessionVerificationDatabase,
+  input: {
+    sessionId: string;
+    userId: string;
+    now?: Date;
+  },
+) {
+  const now = input.now ?? new Date();
+  const session = await database.refreshSession.findUnique({
+    where: {
+      id: input.sessionId,
+    },
+    select: {
+      expiresAt: true,
+      revokedAt: true,
+      userId: true,
+    },
+  });
+
+  return Boolean(
+    session && session.userId === input.userId && !session.revokedAt && session.expiresAt > now,
+  );
 }

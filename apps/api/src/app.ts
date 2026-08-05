@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 
 import { env } from './config/env.js';
@@ -23,11 +24,15 @@ export async function buildApp() {
         'body.refresh_token',
       ],
     },
+    trustProxy: env.TRUST_PROXY,
   });
 
   await app.register(cors, {
     credentials: true,
     origin: env.NODE_ENV === 'production' ? env.CORS_ORIGIN : [env.CORS_ORIGIN],
+  });
+  await app.register(rateLimit, {
+    global: false,
   });
 
   await registerHealthRoute(app);
