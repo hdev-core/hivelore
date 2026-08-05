@@ -75,6 +75,31 @@ async function main() {
     userId: founder.id,
   });
 
+  await prisma.worldSeed.upsert({
+    where: {
+      worldId: world.id,
+    },
+    update: {
+      genre: 'Fantasy',
+      mainConflict: 'Weather, memory, and craft compete to define what the islands remember.',
+      premise:
+        'A fictional chain of floating islands where memory, weather, and craft are tightly intertwined.',
+      tone: 'Luminous mystery',
+    },
+    create: {
+      worldId: world.id,
+      premise:
+        'A fictional chain of floating islands where memory, weather, and craft are tightly intertwined.',
+      genre: 'Fantasy',
+      tone: 'Luminous mystery',
+      mainConflict: 'Weather, memory, and craft compete to define what the islands remember.',
+      startingLocation: 'Mirror Lighthouse',
+      firstCharacters: ['Ember Quill', 'Mira Vale'],
+      firstFactions: ['Cartographers Guild'],
+      firstHistoricalEvent: 'The first reflected storm appears before its clouds arrive.',
+    },
+  });
+
   await prisma.worldBibleVersion.upsert({
     where: {
       worldId_versionNumber: {

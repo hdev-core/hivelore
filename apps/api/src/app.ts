@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { env } from './config/env.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoute } from './routes/health.js';
+import { registerWorldRoutes } from './routes/worlds.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -32,6 +33,7 @@ export async function buildApp() {
 
   await registerHealthRoute(app);
   await registerAuthRoutes(app);
+  await registerWorldRoutes(app);
 
   return app;
 }

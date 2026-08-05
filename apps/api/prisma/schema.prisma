@@ -294,6 +294,7 @@ model World {
   founder           User                @relation("WorldFounder", fields: [founderId], references: [id], onDelete: Restrict)
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
+  seed              WorldSeed?
   bibleVersions     WorldBibleVersion[]
   loreEntries       LoreEntry[]
   loreRelationships LoreRelationship[]
@@ -305,6 +306,26 @@ model World {
 
   @@index([founderId])
   @@index([createdAt])
+}
+
+model WorldSeed {
+  id                   String   @id @default(cuid())
+  worldId              String   @unique
+  world                World    @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  premise              String
+  genre                String
+  tone                 String
+  mainConflict         String
+  startingLocation     String?
+  firstCharacters      Json?
+  firstFactions        Json?
+  firstHistoricalEvent String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  /// Mutable off-chain world seed. Hive publication requires a future approved publication flow.
+
+  @@index([genre])
+  @@index([tone])
 }
 
 model WorldMembership {
