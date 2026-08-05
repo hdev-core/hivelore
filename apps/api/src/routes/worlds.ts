@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { env } from '../config/env.js';
+import type { Prisma } from '../generated/prisma/client.js';
 import { authenticateRequest, requireSession } from '../lib/auth-middleware.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -23,6 +24,40 @@ const paramsSchema = z.object({
 
 const stringListSchema = z.array(z.string().trim().min(1).max(120)).max(20);
 
+function isJsonValue(value: unknown): value is Prisma.InputJsonValue {
+  if (value === null) {
+    return true;
+  }
+
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return true;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+
+  if (typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+
+    if (prototype !== Object.prototype && prototype !== null) {
+      return false;
+    }
+
+    return Object.values(value).every(isJsonValue);
+  }
+
+  return false;
+}
+
+const jsonValueSchema = z.custom<Prisma.InputJsonValue>(isJsonValue, {
+  message: 'World bible content must be valid JSON.',
+});
+
 const worldSeedSchema = z.object({
   firstCharacters: stringListSchema.optional(),
   firstFactions: stringListSchema.optional(),
@@ -36,7 +71,7 @@ const worldSeedSchema = z.object({
 
 const worldBibleSchema = z.object({
   changeSummary: z.string().trim().min(1).max(500).optional(),
-  content: z.unknown(),
+  content: jsonValueSchema,
 });
 
 const createWorldSchema = z.object({
@@ -109,7 +144,7 @@ export async function registerWorldRoutes(
         ...body.data,
         bible: {
           ...body.data.bible,
-          content: body.data.bible.content as never,
+          content: body.data.bible.content,
         },
         creatorId: authenticatedUser.id,
       });
@@ -209,7 +244,7 @@ export async function registerWorldRoutes(
           ? {
               bible: {
                 ...body.data.bible,
-                content: body.data.bible.content as never,
+                content: body.data.bible.content,
               },
             }
           : {}),

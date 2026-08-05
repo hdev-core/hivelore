@@ -343,51 +343,45 @@ export async function getWorldHub(database: WorldDatabase, worldId: string) {
     return null;
   }
 
-  const [canonLoreCount, draftLoreCount, activeProposalCount, latestLoreEntries] =
-    await Promise.all([
-      database.loreEntry.count({
-        where: {
-          status: LoreStatus.PUBLISHED_CANON,
-          worldId,
+  const [canonLoreCount, activeProposalCount, latestLoreEntries] = await Promise.all([
+    database.loreEntry.count({
+      where: {
+        status: LoreStatus.PUBLISHED_CANON,
+        worldId,
+      },
+    }),
+    database.proposal.count({
+      where: {
+        status: {
+          in: [ProposalStatus.SUBMITTED, ProposalStatus.VOTING],
         },
-      }),
-      database.loreEntry.count({
-        where: {
-          status: LoreStatus.DRAFT,
-          worldId,
+        worldId,
+      },
+    }),
+    database.loreEntry.findMany({
+      orderBy: [
+        {
+          updatedAt: 'desc',
         },
-      }),
-      database.proposal.count({
-        where: {
-          status: {
-            in: [ProposalStatus.SUBMITTED, ProposalStatus.VOTING],
-          },
-          worldId,
+        {
+          id: 'desc',
         },
-      }),
-      database.loreEntry.findMany({
-        orderBy: [
-          {
-            updatedAt: 'desc',
-          },
-          {
-            id: 'desc',
-          },
-        ],
-        select: {
-          id: true,
-          loreType: true,
-          slug: true,
-          status: true,
-          title: true,
-          updatedAt: true,
-        },
-        take: 6,
-        where: {
-          worldId,
-        },
-      }),
-    ]);
+      ],
+      select: {
+        id: true,
+        loreType: true,
+        slug: true,
+        status: true,
+        title: true,
+        updatedAt: true,
+      },
+      take: 6,
+      where: {
+        status: LoreStatus.PUBLISHED_CANON,
+        worldId,
+      },
+    }),
+  ]);
 
   return {
     latestLoreEntries: latestLoreEntries.map((entry) => ({
@@ -397,7 +391,6 @@ export async function getWorldHub(database: WorldDatabase, worldId: string) {
     stats: {
       activeProposalCount,
       canonLoreCount,
-      draftLoreCount,
     },
     world,
   };

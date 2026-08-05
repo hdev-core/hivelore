@@ -161,9 +161,13 @@ function createDatabase() {
             (!args.where.status || entry.status === args.where.status),
         ).length;
       },
-      async findMany(args: { where: { worldId: string }; take: number }) {
+      async findMany(args: { where: { worldId: string; status?: LoreStatus }; take: number }) {
         return loreEntries
-          .filter((entry) => entry.worldId === args.where.worldId)
+          .filter(
+            (entry) =>
+              entry.worldId === args.where.worldId &&
+              (!('status' in args.where) || entry.status === args.where.status),
+          )
           .slice(0, args.take);
       },
     },
@@ -444,6 +448,26 @@ describe('world routes', () => {
     await app.close();
   });
 
+  test('rejects non-json world bible content', async () => {
+    const state = createDatabase();
+    const app = await createApp(state.database);
+    const response = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        ...worldPayload,
+        bible: {
+          changeSummary: 'Missing content should not pass as undefined.',
+        },
+      },
+      url: '/worlds',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(state.worlds.length, 0);
+    await app.close();
+  });
+
   test('browses, retrieves, and opens a world hub response', async () => {
     const state = createDatabase();
     const app = await createApp(state.database);
@@ -460,6 +484,15 @@ describe('world routes', () => {
       status: LoreStatus.PUBLISHED_CANON,
       title: 'Archivist Lume',
       updatedAt: new Date('2026-08-05T00:02:00.000Z'),
+      worldId: 'world-1',
+    });
+    state.loreEntries.push({
+      id: 'draft-lore',
+      loreType: 'FACTION',
+      slug: 'hidden-draft',
+      status: LoreStatus.DRAFT,
+      title: 'Hidden Draft',
+      updatedAt: new Date('2026-08-05T00:03:00.000Z'),
       worldId: 'world-1',
     });
     state.proposals.push({
@@ -488,7 +521,14 @@ describe('world routes', () => {
     assert.equal(hubResponse.statusCode, 200);
     assert.equal(hubResponse.json().stats.canonLoreCount, 1);
     assert.equal(hubResponse.json().stats.activeProposalCount, 1);
+    assert.equal('draftLoreCount' in hubResponse.json().stats, false);
     assert.equal(hubResponse.json().latestLoreEntries[0].id, 'lore-1');
+    assert.equal(
+      hubResponse
+        .json()
+        .latestLoreEntries.some((entry: { id: string }) => entry.id === 'draft-lore'),
+      false,
+    );
     await app.close();
   });
 

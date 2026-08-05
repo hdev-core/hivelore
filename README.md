@@ -322,7 +322,7 @@ Implemented world endpoints:
 - `POST /worlds`: requires authentication, creates a mutable off-chain World Seed and initial `WorldBibleVersion` in one transaction, and assigns the authenticated user an active `FOUNDER` membership. The route never accepts a client-supplied founder or role and does not publish to Hive.
 - `GET /worlds`: browses discoverable worlds with pagination and basic title/description, genre, and tone filters.
 - `GET /worlds/:worldId`: returns one world with its founder, seed, and current latest World Bible version.
-- `GET /worlds/:worldId/hub`: returns the World Hub aggregate for the frontend, including world seed, current bible preview, simple lore/proposal stats, and latest lore entry summaries.
+- `GET /worlds/:worldId/hub`: returns the World Hub aggregate for the frontend, including world seed, current bible preview, simple canon/proposal stats, and latest canon lore entry summaries.
 - `PATCH /worlds/:worldId`: requires `EDIT_INITIAL_CANON` world permission and updates mutable off-chain world title/description, seed, and latest initial bible content only. It does not create proposals, canonize content, or publish to Hive.
 
 ---
