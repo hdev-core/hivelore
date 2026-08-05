@@ -18,6 +18,7 @@ import {
   type SafeUser,
 } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/errors';
+import { clearStoredAccessToken, storeAccessToken } from '@/lib/api/session';
 import { env } from '@/lib/env';
 
 type HiveKeychainResponse = {
@@ -98,6 +99,7 @@ export default function Home() {
           return;
         }
 
+        storeAccessToken(session.accessToken);
         setUser(session.user);
       })
       .catch(() => {
@@ -125,6 +127,7 @@ export default function Home() {
       ...(publicKey ? { publicKey } : {}),
     });
 
+    storeAccessToken(session.accessToken);
     setUser(session.user);
     setChallenge(null);
     setManualSignature('');
@@ -186,9 +189,11 @@ export default function Home() {
 
     try {
       const session = await refreshAuthSession();
+      storeAccessToken(session.accessToken);
       setUser(session.user);
       await getMe(session.accessToken);
     } catch (nextError) {
+      clearStoredAccessToken();
       setUser(null);
       setError(getErrorMessage(nextError));
     } finally {
@@ -202,6 +207,7 @@ export default function Home() {
 
     try {
       await logoutAuthSession();
+      clearStoredAccessToken();
       setUser(null);
     } catch (nextError) {
       setError(getErrorMessage(nextError));
