@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { WorldRole } from '../src/generated/prisma/enums.js';
 import { ensureActiveFounderMembership } from '../src/lib/founder-memberships.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -73,6 +74,26 @@ async function main() {
   await ensureActiveFounderMembership(prisma, {
     worldId: world.id,
     userId: founder.id,
+  });
+
+  await prisma.worldMembership.upsert({
+    where: {
+      worldId_userId: {
+        worldId: world.id,
+        userId: contributor.id,
+      },
+    },
+    update: {
+      role: WorldRole.CONTRIBUTOR,
+      grantedById: founder.id,
+      revokedAt: null,
+    },
+    create: {
+      worldId: world.id,
+      userId: contributor.id,
+      role: WorldRole.CONTRIBUTOR,
+      grantedById: founder.id,
+    },
   });
 
   await prisma.worldSeed.upsert({
@@ -267,6 +288,68 @@ async function main() {
       },
       targetLoreEntryId: lighthouse.id,
       submittedAt: new Date('2026-01-01T00:00:00.000Z'),
+    },
+  });
+
+  await prisma.contributionDraft.upsert({
+    where: {
+      id: 'dev-contribution-glass-archipelago-001',
+    },
+    update: {
+      kind: 'LORE',
+      title: 'Draft: Lighthouse Keeper Oath',
+      summary: 'Development-only structured contribution draft.',
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: 'Lighthouse Keeper Oath' }],
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Keepers swear to report reflected storms before dawn bells sound.',
+              },
+            ],
+          },
+        ],
+      },
+      status: 'DRAFT',
+      proposalId: null,
+      submittedAt: null,
+      targetLoreEntryId: lighthouse.id,
+    },
+    create: {
+      id: 'dev-contribution-glass-archipelago-001',
+      worldId: world.id,
+      authorId: contributor.id,
+      kind: 'LORE',
+      title: 'Draft: Lighthouse Keeper Oath',
+      summary: 'Development-only structured contribution draft.',
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: 'Lighthouse Keeper Oath' }],
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Keepers swear to report reflected storms before dawn bells sound.',
+              },
+            ],
+          },
+        ],
+      },
+      targetLoreEntryId: lighthouse.id,
     },
   });
 

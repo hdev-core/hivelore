@@ -325,6 +325,15 @@ Implemented world endpoints:
 - `GET /worlds/:worldId/hub`: returns the World Hub aggregate for the frontend, including world seed, current bible preview, simple canon/proposal stats, and latest canon lore entry summaries.
 - `PATCH /worlds/:worldId`: requires `EDIT_INITIAL_CANON` world permission and updates mutable off-chain world title/description, seed, and latest initial bible content only. It does not create proposals, canonize content, or publish to Hive.
 
+Implemented contribution endpoints:
+
+- `POST /worlds/:worldId/contributions`: requires authentication and `CREATE_LORE_DRAFT` world permission, creates an author-owned structured contribution draft for lore or story content, and optionally links it to a lore entry in the same world.
+- `GET /worlds/:worldId/contributions`: requires authentication and lists only the authenticated writer's contributions in the world with page/pageSize pagination and optional status/kind filters.
+- `GET /worlds/:worldId/contributions/:contributionId`: returns an authenticated writer's own contribution draft or submitted contribution without exposing other writers' private drafts.
+- `PATCH /worlds/:worldId/contributions/:contributionId`: requires `EDIT_OWN_DRAFT`, updates only mutable draft fields, and rejects submitted contributions.
+- `DELETE /worlds/:worldId/contributions/:contributionId`: requires `EDIT_OWN_DRAFT`, deletes only draft contributions, and never deletes submitted proposals.
+- `POST /worlds/:worldId/contributions/:contributionId/submit`: requires `SUBMIT_PROPOSAL`, atomically locks the draft, creates exactly one submitted proposal with an immutable `proposedContent` snapshot, and does not publish to Hive.
+
 ---
 
 # Reputation & Rewards
