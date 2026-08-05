@@ -166,27 +166,30 @@ textarea {
   line-height: var(--leading-prose);
 }
 
-.theme-switcher {
-  display: flex;
+.theme-toggle {
+  display: inline-flex;
+  min-height: 2.5rem;
+  width: 2.5rem;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.theme-switcher__label {
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
-
-.theme-switcher__select {
-  min-height: 2.25rem;
-  border: 1px solid var(--input-border);
+  justify-content: center;
+  border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--foreground);
-  padding: 0 2rem 0 0.75rem;
+  box-shadow: var(--shadow-soft);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.theme-toggle:hover {
+  background: var(--muted);
+}
+
+.theme-toggle__icon {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .hive-brand {
@@ -220,4 +223,408 @@ textarea {
   letter-spacing: 0.08em;
   padding: 0.4rem 0.7rem;
   text-transform: uppercase;
+}
+
+.auth-atlas-page {
+  position: relative;
+  width: 100vw;
+  height: calc(100svh - 8rem);
+  max-height: calc(100svh - 8rem);
+  margin-inline: calc(50% - 50vw);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.auth-atlas-page__content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+  padding-block: clamp(1rem, 3vh, 2.25rem);
+}
+
+@media (min-width: 640px) {
+  .auth-atlas-page__content {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .auth-atlas-page__content {
+    padding-inline: 2rem;
+  }
+}
+
+.auth-atlas-page__hero {
+  position: relative;
+  text-shadow: 0 1px 28px color-mix(in srgb, var(--background) 86%, transparent);
+}
+
+.auth-atlas-page__form {
+  position: relative;
+  width: 100%;
+  max-width: 22rem;
+  justify-self: end;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--surface) 96%, transparent),
+    color-mix(in srgb, var(--surface-elevated) 88%, transparent)
+  );
+  box-shadow:
+    0 16px 38px rgb(0 0 0 / 0.18),
+    0 0 0 1px color-mix(in srgb, var(--hive-red) 5%, transparent);
+}
+
+.lore-atlas-background {
+  --atlas-parallax-x: 0;
+  --atlas-parallax-y: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse at 27% 43%,
+      color-mix(in srgb, var(--hive-red) 12%, transparent) 0%,
+      transparent 31%
+    ),
+    radial-gradient(ellipse at 49% 34%, rgb(61 71 117 / 0.11) 0%, transparent 34%),
+    radial-gradient(ellipse at 78% 58%, rgb(24 42 78 / 0.12) 0%, transparent 35%),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--background) 90%, #07060a) 0%,
+      color-mix(in srgb, var(--background) 96%, #0b0d18) 54%,
+      var(--background) 100%
+    );
+}
+
+.lore-atlas-background::before,
+.lore-atlas-background::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+}
+
+.lore-atlas-background::before {
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 50%,
+      color-mix(in srgb, var(--background) 58%, transparent) 73%,
+      color-mix(in srgb, var(--background) 88%, transparent) 100%
+    ),
+    radial-gradient(ellipse at center, transparent 44%, rgb(0 0 0 / 0.34) 100%);
+}
+
+.lore-atlas-background::after {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--foreground) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--foreground) 5%, transparent) 1px,
+      transparent 1px
+    );
+  background-position:
+    calc(var(--atlas-parallax-x) * -10px) calc(var(--atlas-parallax-y) * -10px),
+    calc(var(--atlas-parallax-x) * -10px) calc(var(--atlas-parallax-y) * -10px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(circle at 32% 48%, black 0%, transparent 58%);
+  opacity: 0.16;
+}
+
+:root[data-theme='dark'] .lore-atlas-background {
+  background:
+    radial-gradient(ellipse at 27% 43%, rgb(133 22 45 / 0.2) 0%, transparent 32%),
+    radial-gradient(ellipse at 49% 34%, rgb(46 55 103 / 0.16) 0%, transparent 34%),
+    radial-gradient(ellipse at 78% 58%, rgb(15 30 61 / 0.18) 0%, transparent 35%),
+    linear-gradient(90deg, #0a090d 0%, #111014 52%, #08080c 100%);
+}
+
+.lore-atlas-background__hub {
+  position: absolute;
+  left: clamp(-3rem, 4vw, 4rem);
+  top: 16%;
+  width: clamp(17rem, 33vw, 31rem);
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--hive-red) 20%, transparent);
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--hive-red) 7%, transparent) 0%,
+      transparent 50%
+    ),
+    repeating-radial-gradient(
+      circle,
+      color-mix(in srgb, var(--foreground) 5%, transparent) 0 1px,
+      transparent 1px 2.4rem
+    );
+  filter: blur(0.2px);
+  opacity: 0.44;
+  transform: translate(
+    calc(var(--atlas-parallax-x) * -18px),
+    calc(var(--atlas-parallax-y) * -12px)
+  );
+}
+
+.lore-atlas-background__map {
+  position: absolute;
+  inset: -15% auto auto -4rem;
+  width: min(82rem, 104vw);
+  height: 130%;
+  opacity: 0.62;
+  transform: translate(calc(var(--atlas-parallax-x) * 16px), calc(var(--atlas-parallax-y) * 10px));
+}
+
+.lore-atlas-background__contours path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--foreground) 9%, transparent);
+  stroke-dasharray: 0.45 1.85;
+  stroke-linecap: round;
+  stroke-width: 0.18;
+}
+
+.lore-atlas-background__coastlines path {
+  fill: color-mix(in srgb, #192132 12%, transparent);
+  stroke: color-mix(in srgb, var(--foreground) 13%, transparent);
+  stroke-linejoin: round;
+  stroke-width: 0.2;
+}
+
+.lore-atlas-background__connections path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--foreground) 15%, transparent);
+  stroke-linecap: round;
+  stroke-width: 0.18;
+}
+
+.lore-atlas-background__signals path {
+  animation: lore-signal 13s linear infinite;
+  fill: none;
+  stroke: color-mix(in srgb, var(--hive-red) 36%, var(--foreground) 20%);
+  stroke-dasharray: 0.01 13;
+  stroke-linecap: round;
+  stroke-width: 0.28;
+}
+
+.lore-atlas-background__node-glow {
+  fill: url('#atlas-node-glow');
+  opacity: 0.18;
+}
+
+.lore-atlas-background__node-core {
+  animation: lore-node-pulse 9s ease-in-out infinite;
+  fill: color-mix(in srgb, var(--hive-red) 58%, var(--foreground) 18%);
+  stroke: color-mix(in srgb, var(--surface) 72%, transparent);
+  stroke-width: 0.14;
+}
+
+.lore-atlas-background__node.is-region .lore-atlas-background__node-glow {
+  fill: url('#atlas-cool-glow');
+  opacity: 0.16;
+}
+
+.lore-atlas-background__node.is-region .lore-atlas-background__node-core {
+  fill: color-mix(in srgb, #8ab4ff 52%, var(--foreground) 12%);
+}
+
+.lore-atlas-background__node.is-lore .lore-atlas-background__node-core {
+  fill: color-mix(in srgb, var(--foreground) 62%, var(--hive-red) 13%);
+  opacity: 0.7;
+}
+
+.lore-atlas-background__particles {
+  position: absolute;
+  inset: 0;
+  transform: translate(calc(var(--atlas-parallax-x) * -8px), calc(var(--atlas-parallax-y) * -6px));
+}
+
+.lore-atlas-background__particles span {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  animation: lore-particle-drift 18s ease-in-out infinite;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 46%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, #8ab4ff 16%, transparent);
+}
+
+.lore-atlas-background__veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 50%,
+      color-mix(in srgb, var(--background) 88%, transparent) 74%,
+      var(--background) 100%
+    ),
+    linear-gradient(
+      180deg,
+      var(--background) 0%,
+      transparent 12%,
+      transparent 78%,
+      var(--background) 100%
+    );
+}
+
+@keyframes lore-node-pulse {
+  0%,
+  100% {
+    opacity: 0.62;
+    transform: scale(1);
+  }
+
+  45% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes lore-signal {
+  from {
+    stroke-dashoffset: 11;
+    opacity: 0;
+  }
+
+  20%,
+  74% {
+    opacity: 0.72;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes lore-particle-drift {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    opacity: 0.55;
+    transform: translate3d(var(--particle-distance), -18px, 0);
+  }
+}
+
+@media (max-width: 1024px) {
+  .lore-atlas-background__map {
+    width: 74rem;
+    opacity: 0.48;
+  }
+
+  .lore-atlas-background__particles span:nth-child(n + 6),
+  .lore-atlas-background__signals path:nth-child(n + 5) {
+    display: none;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 768px) {
+  .auth-atlas-page__content {
+    padding-block: 0.75rem;
+  }
+
+  .auth-atlas-page__hero h1 {
+    font-size: clamp(2.35rem, 4.4vw, 3.25rem);
+  }
+
+  .auth-atlas-page__hero .prose-text {
+    margin-top: 1rem;
+  }
+
+  .auth-atlas-page__hero p:last-child {
+    margin-top: 1rem;
+  }
+
+  .auth-atlas-page__form {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .auth-atlas-page {
+    height: calc(100svh - 7rem);
+    max-height: calc(100svh - 7rem);
+    overflow: hidden;
+  }
+
+  .auth-atlas-page__form {
+    max-width: none;
+    justify-self: stretch;
+  }
+
+  .auth-atlas-page__content {
+    padding-block: 1.5rem;
+  }
+
+  .lore-atlas-background {
+    inset: 0;
+  }
+
+  .lore-atlas-background::before {
+    background:
+      linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.38) 48%, rgb(0 0 0 / 0.66) 100%),
+      radial-gradient(ellipse at center, transparent 36%, rgb(0 0 0 / 0.45) 100%);
+  }
+
+  .lore-atlas-background__hub {
+    left: -7rem;
+    top: 4%;
+    width: 22rem;
+    opacity: 0.26;
+  }
+
+  .lore-atlas-background__map {
+    left: -17rem;
+    top: -1rem;
+    width: 58rem;
+    height: 115%;
+    opacity: 0.34;
+  }
+
+  .lore-atlas-background__particles span:nth-child(n + 4),
+  .lore-atlas-background__signals path:nth-child(n + 3),
+  .lore-atlas-background__contours path:nth-child(n + 4) {
+    display: none;
+  }
+
+  .lore-atlas-background__veil {
+    background:
+      linear-gradient(
+        180deg,
+        transparent 0%,
+        color-mix(in srgb, var(--background) 76%, transparent) 44%,
+        var(--background) 100%
+      ),
+      radial-gradient(circle at 28% 24%, transparent 0%, var(--background) 72%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lore-atlas-background,
+  .lore-atlas-background__hub,
+  .lore-atlas-background__map,
+  .lore-atlas-background__particles {
+    transform: none;
+  }
+
+  .lore-atlas-background__node-core,
+  .lore-atlas-background__signals path,
+  .lore-atlas-background__particles span {
+    animation: none;
+  }
+
+  .lore-atlas-background__signals path {
+    opacity: 0.16;
+    stroke-dasharray: 1 9;
+  }
 }
