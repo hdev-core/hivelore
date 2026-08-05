@@ -232,6 +232,16 @@ model RefreshSession {
   @@index([revokedAt])
 }
 
+model AuthRateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
 model ExternalIdentityLink {
   id                   String                    @id @default(cuid())
   userId               String

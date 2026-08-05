@@ -194,7 +194,7 @@ HiveLore supports Hive Keychain and HiveSigner through the same backend challeng
 
 The current verifier supports a single posting public key whose configured key weight satisfies the account's posting threshold. Accounts requiring multiple posting signatures or delegated account authorities are not accepted by the login flow yet; that avoids falsely authenticating a key that cannot independently satisfy posting authority.
 
-Successful authentication issues a short-lived access JWT and a long-lived opaque refresh token. Refresh tokens are stored only as one-way HMAC hashes in PostgreSQL, rotate on every successful refresh, and revoke the session family if a rotated token is reused. Browser refresh tokens are set in an `httpOnly` cookie and are not returned in JSON responses; access tokens are returned to the client for authenticated API requests. Logout is idempotent and revokes the submitted refresh session or session family when requested. Already-issued access JWTs are stateless and remain usable until their short expiration unless future server-side revocation checks are added.
+Successful authentication issues a short-lived access JWT and a long-lived opaque refresh token. Refresh tokens are stored only as one-way HMAC hashes in PostgreSQL using a dedicated refresh-token secret, rotate on every successful refresh, and revoke the session family if a rotated token is reused. Browser refresh tokens are set in an `httpOnly` cookie and are not returned in JSON responses; access tokens are returned to the client for authenticated API requests. Authenticated API requests verify the access token session id against a non-revoked refresh session so logout invalidates already-issued access tokens. Logout is idempotent and revokes the submitted refresh session or session family when requested.
 
 HiveLore never requests, receives, logs, stores, or returns Hive posting, active, owner, or memo private keys. Login proves identity only. It does not grant the backend permission to publish content, vote, transfer funds, or perform any on-chain action for the user.
 
@@ -314,6 +314,8 @@ Implemented authentication endpoints:
 - `POST /auth/refresh`: validates the opaque refresh token from the `httpOnly` cookie or request body, checks trusted browser origins for cookie-based refreshes, rotates it, revokes the previous token, returns a new access token, and revokes the session family on reuse detection.
 - `POST /auth/logout`: revokes the current refresh session or session family when requested and clears the refresh cookie. Repeated logout is safe.
 - `GET /me`: requires a valid access JWT and returns the safe canonical Hive-linked user representation.
+
+Auth challenge, verification, and refresh endpoints use Fastify rate limiting backed by PostgreSQL buckets so limits are shared across API instances. Set `TRUST_PROXY=true` on deployments that run behind a trusted proxy or load balancer so client IPs are resolved from trusted forwarding headers.
 
 Google auth routes are not registered as a default login path. With `GOOGLE_AUTH_ENABLED=false`, `/auth/google/*` returns a not-enabled response. Enabling Google currently exposes the guarded boundary only; Google OAuth account linking and automatic Hive provisioning remain deferred until secure non-custodial account creation and key delivery are specified.
 
@@ -511,7 +513,7 @@ HIVE_RC_DELEGATION_AMOUNT=
 
 `DATABASE_URL` is the pooled connection used by normal API queries. `DIRECT_URL` is the direct PostgreSQL connection Prisma uses for migrations and administrative operations. Supabase service-role keys are not required for Prisma's PostgreSQL connection. Hive private keys must never be stored.
 
-Use separate credentials and databases for development and production. Do not reset a shared development database without team coordination.
+Use separate credentials and databases for development and production. Any internet-facing API environment, including shared development hosts, must set long random `AUTH_JWT_SECRET` and `AUTH_REFRESH_SECRET` values and `AUTH_COOKIE_SECURE=true`. Deployments behind a trusted proxy or load balancer must set `TRUST_PROXY=true`. Do not reset a shared development database without team coordination.
 
 ### Supabase Setup
 

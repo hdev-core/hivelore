@@ -3,6 +3,8 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 
 import { env } from './config/env.js';
+import { createPrismaRateLimitStore } from './lib/auth-rate-limit-store.js';
+import { prisma } from './lib/prisma.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoute } from './routes/health.js';
 
@@ -33,6 +35,8 @@ export async function buildApp() {
   });
   await app.register(rateLimit, {
     global: false,
+    skipOnError: false,
+    store: createPrismaRateLimitStore(prisma),
   });
 
   await registerHealthRoute(app);
