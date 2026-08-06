@@ -43,6 +43,18 @@ function createChallengeDatabase() {
           id: record.id,
         };
       },
+      async deleteMany(args: { where: { expiresAt: { lt: Date } } }) {
+        let count = 0;
+
+        for (const [id, record] of records.entries()) {
+          if (record.expiresAt < args.where.expiresAt.lt) {
+            records.delete(id);
+            count += 1;
+          }
+        }
+
+        return { count };
+      },
       async findUnique(args: {
         where: { id: string };
         select: {

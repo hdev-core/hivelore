@@ -18,10 +18,9 @@ const envSchema = z.object({
   HOST: z.string().min(1).default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().max(65535).default(3001),
   CORS_ORIGIN: z.string().url().default('http://localhost:3000'),
-  AUTH_JWT_SECRET: z
-    .string()
-    .min(32)
-    .default('development-only-auth-secret-change-before-production'),
+  TRUST_PROXY: booleanEnv(false),
+  AUTH_JWT_SECRET: z.string().min(32).optional(),
+  AUTH_REFRESH_SECRET: z.string().min(32).optional(),
   AUTH_JWT_ISSUER: z.string().min(1).default('hivelore'),
   AUTH_JWT_AUDIENCE: z.string().min(1).default('hivelore-web'),
   AUTH_ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
@@ -62,13 +61,36 @@ export function parseEnv(environment: NodeJS.ProcessEnv) {
     throw new Error(`Invalid API environment configuration: ${errors}`);
   }
 
-  const parsedEnv = parsed.data;
+  const parsedEnv =
+    parsed.data.NODE_ENV === 'test'
+      ? {
+          ...parsed.data,
+          AUTH_JWT_SECRET:
+            parsed.data.AUTH_JWT_SECRET ?? 'test-only-jwt-secret-with-enough-entropy',
+          AUTH_REFRESH_SECRET:
+            parsed.data.AUTH_REFRESH_SECRET ?? 'test-only-refresh-secret-with-enough-entropy',
+        }
+      : parsed.data;
 
-  if (
-    parsedEnv.NODE_ENV === 'production' &&
-    parsedEnv.AUTH_JWT_SECRET.includes('development-only')
-  ) {
-    throw new Error('AUTH_JWT_SECRET must be set to a production secret.');
+  if (parsedEnv.NODE_ENV !== 'test') {
+    if (!parsedEnv.AUTH_JWT_SECRET) {
+      throw new Error('AUTH_JWT_SECRET must be set.');
+    }
+
+    if (!parsedEnv.AUTH_REFRESH_SECRET) {
+      throw new Error('AUTH_REFRESH_SECRET must be set.');
+    }
+
+    if (
+      parsedEnv.AUTH_JWT_SECRET.includes('development-only') ||
+      parsedEnv.AUTH_REFRESH_SECRET.includes('development-only')
+    ) {
+      throw new Error('Authentication secrets must not use development-only defaults.');
+    }
+  }
+
+  if (parsedEnv.NODE_ENV === 'production' && parsedEnv.AUTH_COOKIE_SECURE === false) {
+    throw new Error('AUTH_COOKIE_SECURE must be true in production.');
   }
 
   if (
@@ -87,7 +109,14 @@ export function parseEnv(environment: NodeJS.ProcessEnv) {
     throw new Error('Hive RC delegation is enabled but delegation configuration is missing.');
   }
 
-  return parsedEnv;
+  if (!parsedEnv.AUTH_JWT_SECRET || !parsedEnv.AUTH_REFRESH_SECRET) {
+    throw new Error('Authentication secrets must be set.');
+  }
+
+  return parsedEnv as typeof parsedEnv & {
+    AUTH_JWT_SECRET: string;
+    AUTH_REFRESH_SECRET: string;
+  };
 }
 
 export const env = parseEnv(process.env);
