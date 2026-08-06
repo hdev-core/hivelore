@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 
 type ThemePreference = 'system' | 'light' | 'dark';
 type ResolvedTheme = 'light' | 'dark';
@@ -12,7 +20,6 @@ type ThemeContextValue = {
 };
 
 const STORAGE_KEY = 'hivelore-theme';
-const CHANGE_EVENT = 'hivelore-theme-change';
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
@@ -32,7 +39,13 @@ function applyTheme(preference: ThemePreference) {
 }
 
 function readPreference(): ThemePreference {
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  let stored: string | null = null;
+
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    stored = null;
+  }
 
   if (stored === 'light' || stored === 'dark' || stored === 'system') {
     return stored;
@@ -41,45 +54,52 @@ function readPreference(): ThemePreference {
   return 'system';
 }
 
-function getSnapshot() {
-  const preference = readPreference();
-  const resolvedTheme = applyTheme(preference);
-  return `${preference}:${resolvedTheme}`;
-}
-
-function getServerSnapshot() {
-  return 'system:light';
-}
-
-function subscribe(callback: () => void) {
-  const media = window.matchMedia('(prefers-color-scheme: dark)');
-  const handleChange = () => callback();
-
-  media.addEventListener('change', handleChange);
-  window.addEventListener(CHANGE_EVENT, handleChange);
-  window.addEventListener('storage', handleChange);
-
-  return () => {
-    media.removeEventListener('change', handleChange);
-    window.removeEventListener(CHANGE_EVENT, handleChange);
-    window.removeEventListener('storage', handleChange);
-  };
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const [preference, setPreferenceState] = useState<ThemePreference>('system');
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light');
 
-  const [preference, resolvedTheme] = snapshot.split(':') as [ThemePreference, ResolvedTheme];
+  const setPreference = useCallback((nextPreference: ThemePreference) => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, nextPreference);
+    } catch {
+      // Theme still updates for this session if localStorage is unavailable.
+    }
 
-  const setPreference = (nextPreference: ThemePreference) => {
-    window.localStorage.setItem(STORAGE_KEY, nextPreference);
-    applyTheme(nextPreference);
-    window.dispatchEvent(new Event(CHANGE_EVENT));
-  };
+    setPreferenceState(nextPreference);
+    setResolvedTheme(applyTheme(nextPreference));
+  }, []);
+
+  useEffect(() => {
+    const storedPreference = readPreference();
+    setPreferenceState(storedPreference);
+    setResolvedTheme(applyTheme(storedPreference));
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const handleSystemChange = () => {
+      setResolvedTheme(applyTheme(preference));
+    };
+
+    const handleStorageChange = () => {
+      const nextPreference = readPreference();
+      setPreferenceState(nextPreference);
+      setResolvedTheme(applyTheme(nextPreference));
+    };
+
+    media.addEventListener('change', handleSystemChange);
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      media.removeEventListener('change', handleSystemChange);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [preference]);
 
   const value = useMemo(
     () => ({ preference, resolvedTheme, setPreference }),
-    [preference, resolvedTheme],
+    [preference, resolvedTheme, setPreference],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
