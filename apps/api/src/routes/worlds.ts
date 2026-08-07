@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { authenticateRequest, requireSession } from '../lib/auth-middleware.js';
+import type { SessionVerificationDatabase } from '../lib/auth-sessions.js';
 import { prisma } from '../lib/prisma.js';
 import {
   createWorld,
@@ -101,12 +102,13 @@ const listWorldsSchema = z.object({
 });
 
 type RegisterWorldRoutesOptions = {
-  database?: WorldDatabase & WorldMembershipLookup;
+  database?: WorldDatabase & WorldMembershipLookup & SessionVerificationDatabase;
 };
 
-function authOptions() {
+function authOptions(database: SessionVerificationDatabase) {
   return {
     audience: env.AUTH_JWT_AUDIENCE,
+    database,
     issuer: env.AUTH_JWT_ISSUER,
     jwtSecret: env.AUTH_JWT_SECRET,
   };
@@ -121,7 +123,7 @@ export async function registerWorldRoutes(
   app.post(
     '/worlds',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const body = createWorldSchema.safeParse(request.body);
@@ -132,7 +134,7 @@ export async function registerWorldRoutes(
         });
       }
 
-      const authenticatedUser = authenticateRequest(request, authOptions());
+      const authenticatedUser = await authenticateRequest(request, authOptions(database));
 
       if (!authenticatedUser) {
         return reply.code(401).send({
@@ -212,7 +214,7 @@ export async function registerWorldRoutes(
   app.patch(
     '/worlds/:worldId',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = paramsSchema.safeParse(request.params);

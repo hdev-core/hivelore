@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import { ContributionKind, ContributionStatus } from '../generated/prisma/enums.js';
 import { requireSession } from '../lib/auth-middleware.js';
+import type { SessionVerificationDatabase } from '../lib/auth-sessions.js';
 import {
   ContributionError,
   createContribution,
@@ -58,12 +59,13 @@ const listContributionsQuerySchema = z.object({
 });
 
 type RegisterContributionRoutesOptions = {
-  database?: ContributionDatabase & WorldMembershipLookup;
+  database?: ContributionDatabase & WorldMembershipLookup & SessionVerificationDatabase;
 };
 
-function authOptions() {
+function authOptions(database: SessionVerificationDatabase) {
   return {
     audience: env.AUTH_JWT_AUDIENCE,
+    database,
     issuer: env.AUTH_JWT_ISSUER,
     jwtSecret: env.AUTH_JWT_SECRET,
   };
@@ -113,7 +115,7 @@ export async function registerContributionRoutes(
   app.post(
     '/worlds/:worldId/contributions',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = routeParamsSchema.safeParse(request.params);
@@ -168,7 +170,7 @@ export async function registerContributionRoutes(
   app.get(
     '/worlds/:worldId/contributions',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = routeParamsSchema.safeParse(request.params);
@@ -215,7 +217,7 @@ export async function registerContributionRoutes(
   app.get(
     '/worlds/:worldId/contributions/:contributionId',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = routeParamsSchema.required().safeParse(request.params);
@@ -271,7 +273,7 @@ export async function registerContributionRoutes(
   app.patch(
     '/worlds/:worldId/contributions/:contributionId',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = routeParamsSchema.required().safeParse(request.params);
@@ -327,7 +329,7 @@ export async function registerContributionRoutes(
   app.delete(
     '/worlds/:worldId/contributions/:contributionId',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = routeParamsSchema.required().safeParse(request.params);
@@ -379,7 +381,7 @@ export async function registerContributionRoutes(
   app.post(
     '/worlds/:worldId/contributions/:contributionId/submit',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = routeParamsSchema.required().safeParse(request.params);
