@@ -5,10 +5,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { LoreEntityTabs } from '@/components/lore/lore-entity-tabs';
 import { ApiError } from '@/lib/api/errors';
 import { getWorldHub, type WorldHub } from '@/lib/api/worlds';
-import { loreCategories } from '@/lib/worlds/constants';
 
 type WorldPageProps = {
   params: Promise<{ worldId: string }>;
@@ -229,42 +228,7 @@ function WorldHubContent({ hub }: { hub: WorldHub }) {
         </Card>
       </section>
 
-      <section aria-labelledby="lore-tabs-heading">
-        <h2 id="lore-tabs-heading" className="text-2xl font-semibold tracking-normal">
-          Canon entries
-        </h2>
-        <Tabs className="mt-4" defaultValue="characters">
-          <TabsList>
-            {loreCategories.map((category) => (
-              <TabsTrigger key={category.id} value={category.id}>
-                {category.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          {loreCategories.map((category) => (
-            <TabsContent key={category.id} value={category.id}>
-              <Card>
-                <CardContent>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold">{category.label}</p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        Entity CRUD is the next M2 card; this hub is ready to receive those entries.
-                      </p>
-                    </div>
-                    <Link
-                      className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                      href={`/worlds/${world.id}/contribute?type=${category.id}`}
-                    >
-                      Add {category.label}
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          ))}
-        </Tabs>
-      </section>
+      <LoreEntityTabs fallbackEntries={latestLoreEntries} worldId={world.id} />
 
       <section className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <div className="space-y-4">
