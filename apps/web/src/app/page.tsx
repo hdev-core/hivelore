@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { HiveBrand } from '@/components/hive-brand';
-import { ThemeSwitcher } from '@/components/theme-switcher';
+import { LoreAtlasBackground } from '@/components/auth/lore-atlas-background';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +17,6 @@ import {
   type SafeUser,
 } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/errors';
-import { clearStoredAccessToken, storeAccessToken } from '@/lib/api/session';
 import { env } from '@/lib/env';
 
 type HiveKeychainResponse = {
@@ -78,6 +76,29 @@ async function sha256Hex(value: string) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function GoogleIcon() {
+  return (
+    <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24">
+      <path
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09Z"
+        fill="#4285F4"
+      />
+      <path
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z"
+        fill="#34A853"
+      />
+      <path
+        d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.24 1 12s.43 3.45 1.18 4.94l3.66-2.84Z"
+        fill="#FBBC05"
+      />
+      <path
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06L5.84 9.9C6.71 7.3 9.14 5.38 12 5.38Z"
+        fill="#EA4335"
+      />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [challenge, setChallenge] = useState<AuthChallengeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +120,6 @@ export default function Home() {
           return;
         }
 
-        storeAccessToken(session.accessToken);
         setUser(session.user);
       })
       .catch(() => {
@@ -127,7 +147,6 @@ export default function Home() {
       ...(publicKey ? { publicKey } : {}),
     });
 
-    storeAccessToken(session.accessToken);
     setUser(session.user);
     setChallenge(null);
     setManualSignature('');
@@ -189,11 +208,9 @@ export default function Home() {
 
     try {
       const session = await refreshAuthSession();
-      storeAccessToken(session.accessToken);
       setUser(session.user);
       await getMe(session.accessToken);
     } catch (nextError) {
-      clearStoredAccessToken();
       setUser(null);
       setError(getErrorMessage(nextError));
     } finally {
@@ -207,7 +224,6 @@ export default function Home() {
 
     try {
       await logoutAuthSession();
-      clearStoredAccessToken();
       setUser(null);
     } catch (nextError) {
       setError(getErrorMessage(nextError));
@@ -217,140 +233,144 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 py-8">
-        <header className="flex items-center justify-between gap-4 border-b border-border pb-4">
-          <div className="flex items-center gap-3">
-            <HiveBrand className="h-9 w-11" />
-            <span className="text-lg font-semibold tracking-normal">HiveLore</span>
-          </div>
-          <ThemeSwitcher />
-        </header>
+    <div className="auth-atlas-page">
+      <LoreAtlasBackground />
+      <div className="auth-atlas-page__content grid items-center gap-10 lg:grid-cols-[1fr_24rem]">
+        <div className="auth-atlas-page__hero">
+          <h1 className="max-w-2xl text-4xl font-semibold tracking-normal text-foreground sm:text-5xl">
+            Welcome back to HiveLore.
+          </h1>
+          <p className="prose-text mt-5 max-w-2xl">
+            Sign in to contribute, vote, and build trusted Hive knowledge.
+          </p>
+          <p className="mt-5 max-w-xl text-sm leading-6 text-muted-foreground">
+            Hive accounts are the canonical identity. Signing a challenge proves account control and
+            never gives HiveLore permission to publish, transfer, or hold private keys.
+          </p>
+        </div>
 
-        <section className="grid flex-1 items-center gap-10 py-10 lg:grid-cols-[1fr_24rem]">
-          <div>
-            <h1 className="max-w-2xl text-4xl font-semibold tracking-normal text-foreground sm:text-5xl">
-              Welcome back to HiveLore.
-            </h1>
-            <p className="prose-text mt-5 max-w-2xl">
-              Sign in to contribute, vote, and build trusted Hive knowledge.
-            </p>
-            <p className="mt-5 max-w-xl text-sm leading-6 text-muted-foreground">
-              Hive accounts are the canonical identity. Signing a challenge proves account control
-              and never gives HiveLore permission to publish, transfer, or hold private keys.
-            </p>
-          </div>
-
-          <div className="rounded-panel border border-border bg-surface p-5 shadow-elevated">
-            {user ? (
-              <div className="grid gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-muted-foreground">Signed in as</p>
-                  <p className="mt-1 text-2xl font-semibold">@{user.hiveUsername}</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                  <Button isLoading={isLoading} onClick={handleRefresh} variant="secondary">
-                    Refresh Session
-                  </Button>
-                  <Button isLoading={isLoading} onClick={handleLogout} variant="outline">
-                    Log Out
-                  </Button>
-                </div>
+        <div className="auth-atlas-page__form rounded-panel border border-border bg-surface p-4 shadow-elevated sm:p-5">
+          {user ? (
+            <div className="grid gap-3.5">
+              <div>
+                <p className="text-sm font-semibold text-muted-foreground">Signed in as</p>
+                <p className="mt-1 text-2xl font-semibold">@{user.hiveUsername}</p>
               </div>
-            ) : (
-              <div className="grid gap-4">
-                <label className="grid gap-2 text-sm font-semibold">
-                  Hive username
-                  <Input
-                    autoComplete="username"
-                    onChange={(event) => setUsername(event.target.value)}
-                    placeholder="alice"
-                    value={username}
-                  />
-                </label>
-
-                <Button
-                  isLoading={isLoading && provider === 'keychain'}
-                  loadingLabel="Waiting for signature"
-                  onClick={handleKeychainLogin}
-                  variant="hive"
-                  disabled={!canSubmit}
-                >
-                  Sign in with Hive Keychain
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                <Button isLoading={isLoading} onClick={handleRefresh} variant="secondary">
+                  Refresh Session
                 </Button>
-
-                <div className="flex items-center gap-3 text-xs font-semibold uppercase text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  or
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-
-                <Button
-                  disabled={!canSubmit}
-                  isLoading={isLoading && provider === 'hivesigner'}
-                  loadingLabel="Creating challenge"
-                  onClick={handleHiveSignerStart}
-                  variant="outline"
-                >
-                  Continue with HiveSigner
-                </Button>
-
-                {env.googleAuthEnabled ? (
-                  <Button variant="secondary">Continue with Google</Button>
-                ) : null}
-
-                <p className="text-sm leading-6 text-muted-foreground">
-                  No password is stored by HiveLore.
-                </p>
-              </div>
-            )}
-
-            {challenge ? (
-              <div className="mt-5 grid gap-3 border-t border-border pt-5">
-                <label className="grid gap-2 text-sm font-semibold">
-                  Challenge message
-                  <textarea
-                    className="min-h-36 rounded-control border border-input-border bg-surface px-3 py-2 font-mono text-xs text-foreground"
-                    readOnly
-                    value={challenge.message}
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-semibold">
-                  Signature
-                  <Input
-                    onChange={(event) => setManualSignature(event.target.value)}
-                    placeholder="Paste HiveSigner signature"
-                    value={manualSignature}
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-semibold">
-                  Public key
-                  <Input
-                    onChange={(event) => setManualPublicKey(event.target.value)}
-                    placeholder="Optional recovered public key"
-                    value={manualPublicKey}
-                  />
-                </label>
-                <Button
-                  disabled={!manualSignature || isLoading}
-                  isLoading={isLoading}
-                  onClick={handleManualVerify}
-                  variant="primary"
-                >
-                  Verify Signature
+                <Button isLoading={isLoading} onClick={handleLogout} variant="outline">
+                  Log Out
                 </Button>
               </div>
-            ) : null}
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <label className="grid gap-2 text-sm font-semibold">
+                Hive username
+                <Input
+                  autoComplete="username"
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="alice"
+                  value={username}
+                />
+              </label>
 
-            {error ? (
-              <Alert className="mt-5" variant="danger">
-                <AlertTitle>Authentication failed</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-          </div>
-        </section>
+              <Button
+                disabled={!canSubmit}
+                isLoading={isLoading && provider === 'keychain'}
+                loadingLabel="Waiting for signature"
+                onClick={handleKeychainLogin}
+                variant="hive"
+              >
+                Sign in with Hive Keychain
+              </Button>
+
+              <div className="flex items-center gap-3 text-xs font-semibold uppercase text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />
+                or
+                <span className="h-px flex-1 bg-border" />
+              </div>
+
+              <Button
+                disabled={!canSubmit}
+                isLoading={isLoading && provider === 'hivesigner'}
+                loadingLabel="Creating challenge"
+                onClick={handleHiveSignerStart}
+                variant="outline"
+              >
+                Continue with HiveSigner
+              </Button>
+
+              <Button
+                disabled={!env.googleAuthEnabled}
+                leftIcon={<GoogleIcon />}
+                title={
+                  env.googleAuthEnabled
+                    ? 'Continue with Google'
+                    : 'Google onboarding is not enabled in this environment.'
+                }
+                variant="secondary"
+              >
+                Continue with Google
+              </Button>
+
+              <p className="text-sm leading-6 text-muted-foreground">
+                Google creates or connects a Hive account behind the scenes.
+              </p>
+
+              <p className="text-sm leading-6 text-muted-foreground">
+                No password is stored by HiveLore.
+              </p>
+            </div>
+          )}
+
+          {challenge ? (
+            <div className="mt-5 grid gap-3 border-t border-border pt-5">
+              <label className="grid gap-2 text-sm font-semibold">
+                Challenge message
+                <textarea
+                  className="min-h-36 rounded-control border border-input-border bg-surface px-3 py-2 font-mono text-xs text-foreground"
+                  readOnly
+                  value={challenge.message}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold">
+                Signature
+                <Input
+                  onChange={(event) => setManualSignature(event.target.value)}
+                  placeholder="Paste HiveSigner signature"
+                  value={manualSignature}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold">
+                Public key
+                <Input
+                  onChange={(event) => setManualPublicKey(event.target.value)}
+                  placeholder="Optional recovered public key"
+                  value={manualPublicKey}
+                />
+              </label>
+              <Button
+                disabled={!manualSignature || isLoading}
+                isLoading={isLoading}
+                onClick={handleManualVerify}
+                variant="primary"
+              >
+                Verify Signature
+              </Button>
+            </div>
+          ) : null}
+
+          {error ? (
+            <Alert className="mt-5" variant="danger">
+              <AlertTitle>Authentication failed</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
       </div>
-    </main>
+    </div>
   );
 }
