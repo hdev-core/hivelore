@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { env } from '../config/env.js';
 import type { Prisma } from '../generated/prisma/client.js';
-import { authenticateRequest, requireSession } from '../lib/auth-middleware.js';
+import { requireSession } from '../lib/auth-middleware.js';
 import type { SessionVerificationDatabase } from '../lib/auth-sessions.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -134,9 +134,7 @@ export async function registerWorldRoutes(
         });
       }
 
-      const authenticatedUser = await authenticateRequest(request, authOptions(database));
-
-      if (!authenticatedUser) {
+      if (!request.user) {
         return reply.code(401).send({
           error: 'Authentication required.',
         });
@@ -148,7 +146,7 @@ export async function registerWorldRoutes(
           ...body.data.bible,
           content: body.data.bible.content,
         },
-        creatorId: authenticatedUser.id,
+        creatorId: request.user.id,
       });
 
       return reply.code(201).send({

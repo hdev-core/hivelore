@@ -169,22 +169,40 @@ textarea {
 .theme-toggle {
   display: inline-flex;
   min-height: 2.5rem;
-  width: 2.5rem;
   align-items: center;
   justify-content: center;
+  gap: 0.125rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface);
-  color: var(--foreground);
+  padding: 0.125rem;
   box-shadow: var(--shadow-soft);
+}
+
+.theme-toggle__button {
+  display: inline-flex;
+  width: 2.125rem;
+  height: 2.125rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-control) - 0.125rem);
+  background: transparent;
+  color: var(--foreground);
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
     color 160ms ease;
 }
 
-.theme-toggle:hover {
+.theme-toggle__button:hover {
   background: var(--muted);
+}
+
+.theme-toggle__button[aria-pressed='true'] {
+  border-color: var(--border);
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .theme-toggle__icon {

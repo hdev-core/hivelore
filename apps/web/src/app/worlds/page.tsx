@@ -9,7 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { SearchInput } from '@/components/ui/search-input';
 import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api/errors';
-import { listWorlds, type WorldSort, type WorldSummary } from '@/lib/api/worlds';
+import {
+  listWorlds,
+  type WorldsPagination,
+  type WorldSort,
+  type WorldSummary,
+} from '@/lib/api/worlds';
 import { cn } from '@/lib/styles';
 import { quickFilters } from '@/lib/worlds/constants';
 
@@ -52,22 +57,39 @@ export default function WorldsPage() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<WorldsPagination>({
+    page: 1,
+    pageSize: 24,
+    total: 0,
+  });
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<WorldSort>('most-active');
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
 
   useEffect(() => {
+    setPage(1);
+  }, [activeFilter, query]);
+
+  useEffect(() => {
     let isMounted = true;
+    const searchQuery = query.trim();
 
     setIsLoading(true);
     setError(null);
 
-    listWorlds()
+    listWorlds({
+      ...(activeFilter !== 'all' ? { genre: activeFilter } : {}),
+      page,
+      pageSize: pagination.pageSize,
+      ...(searchQuery ? { q: searchQuery } : {}),
+    })
       .then((response) => {
         if (!isMounted) {
           return;
         }
 
+        setPagination(response.pagination);
         setWorlds(response.worlds);
       })
       .catch((nextError) => {
@@ -86,30 +108,10 @@ export default function WorldsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [activeFilter, page, pagination.pageSize, query]);
 
-  const filteredWorlds = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-
-    return sortWorlds(worlds, sort).filter((world) => {
-      const genre = world.seed?.genre ?? '';
-      const tone = world.seed?.tone ?? '';
-      const matchesFilter = activeFilter === 'all' || genre.toLowerCase() === activeFilter;
-      const searchableText = [
-        world.title,
-        world.description,
-        genre,
-        tone,
-        getFounderName(world),
-        world.seed?.premise,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      return matchesFilter && (!normalizedQuery || searchableText.includes(normalizedQuery));
-    });
-  }, [activeFilter, query, sort, worlds]);
+  const sortedWorlds = useMemo(() => sortWorlds(worlds, sort), [sort, worlds]);
+  const pageCount = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
 
   return (
     <div className="space-y-8">
@@ -144,7 +146,7 @@ export default function WorldsPage() {
               <SearchInput
                 className="h-12"
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search by title, genre, founder, or tone"
+                placeholder="Search by title or description"
                 value={query}
               />
             </label>
@@ -212,12 +214,33 @@ export default function WorldsPage() {
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {isLoading
                 ? 'Loading worlds...'
-                : `Showing ${filteredWorlds.length} of ${worlds.length} worlds.`}
+                : `Showing ${sortedWorlds.length} of ${pagination.total} worlds.`}
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="min-h-9 rounded-control border border-border bg-surface px-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+              disabled={page <= 1 || isLoading}
+              onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+              type="button"
+            >
+              Previous
+            </button>
+            <span className="min-w-20 text-center text-sm font-semibold text-muted-foreground">
+              {pagination.page} / {pageCount}
+            </span>
+            <button
+              className="min-h-9 rounded-control border border-border bg-surface px-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+              disabled={page >= pageCount || isLoading}
+              onClick={() => setPage((currentPage) => Math.min(pageCount, currentPage + 1))}
+              type="button"
+            >
+              Next
+            </button>
           </div>
         </div>
 
-        {!isLoading && filteredWorlds.length === 0 ? (
+        {!isLoading && sortedWorlds.length === 0 ? (
           <Card>
             <CardContent>
               <p className="text-sm leading-6 text-muted-foreground">
@@ -228,7 +251,7 @@ export default function WorldsPage() {
         ) : null}
 
         <div className="grid gap-4 lg:grid-cols-3">
-          {filteredWorlds.map((world) => (
+          {sortedWorlds.map((world) => (
             <Link
               className="group rounded-panel focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               href={`/worlds/${world.id}`}

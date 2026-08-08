@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { LoreAtlasBackground } from '@/components/auth/lore-atlas-background';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -9,16 +9,13 @@ import { Input } from '@/components/ui/input';
 import {
   createAuthChallenge,
   getMe,
-  logoutAuthSession,
-  refreshAuthSession,
   verifyAuthChallenge,
   type AuthChallengeResponse,
   type AuthProvider,
-  type SafeUser,
 } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/errors';
-import { clearStoredAccessToken, storeAccessToken } from '@/lib/api/session';
 import { env } from '@/lib/env';
+import { useAuthSession } from '@/providers/auth-session-provider';
 
 type HiveKeychainResponse = {
   success: boolean;
@@ -107,33 +104,13 @@ export default function Home() {
   const [manualSignature, setManualSignature] = useState('');
   const [manualPublicKey, setManualPublicKey] = useState('');
   const [provider, setProvider] = useState<AuthProvider>('keychain');
-  const [user, setUser] = useState<SafeUser | null>(null);
   const [username, setUsername] = useState('');
+  const { clearSession, isSessionLoading, refreshSession, setSession, user } = useAuthSession();
 
-  const canSubmit = useMemo(() => username.trim().length > 0 && !isLoading, [isLoading, username]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    refreshAuthSession()
-      .then((session) => {
-        if (!isMounted) {
-          return;
-        }
-
-        storeAccessToken(session.accessToken);
-        setUser(session.user);
-      })
-      .catch(() => {
-        if (isMounted) {
-          setUser(null);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const canSubmit = useMemo(
+    () => username.trim().length > 0 && !isLoading && !isSessionLoading,
+    [isLoading, isSessionLoading, username],
+  );
 
   async function completeLogin(
     nextChallenge: AuthChallengeResponse,
@@ -149,8 +126,7 @@ export default function Home() {
       ...(publicKey ? { publicKey } : {}),
     });
 
-    storeAccessToken(session.accessToken);
-    setUser(session.user);
+    setSession(session);
     setChallenge(null);
     setManualSignature('');
     setManualPublicKey('');
@@ -210,13 +186,9 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const session = await refreshAuthSession();
-      storeAccessToken(session.accessToken);
-      setUser(session.user);
+      const session = await refreshSession();
       await getMe(session.accessToken);
     } catch (nextError) {
-      clearStoredAccessToken();
-      setUser(null);
       setError(getErrorMessage(nextError));
     } finally {
       setIsLoading(false);
@@ -228,9 +200,7 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      await logoutAuthSession();
-      clearStoredAccessToken();
-      setUser(null);
+      await clearSession();
     } catch (nextError) {
       setError(getErrorMessage(nextError));
     } finally {

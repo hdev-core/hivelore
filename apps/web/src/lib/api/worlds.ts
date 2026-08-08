@@ -67,6 +67,12 @@ export type WorldHub = {
 
 export type WorldSort = 'newest' | 'most-active';
 
+export type WorldsPagination = {
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type CreateWorldInput = {
   title: string;
   description: string;
@@ -86,10 +92,12 @@ export type CreateWorldInput = {
   };
 };
 
-export function listWorlds(params: { q?: string; genre?: string; tone?: string } = {}) {
+export function listWorlds(
+  params: { genre?: string; page?: number; pageSize?: number; q?: string; tone?: string } = {},
+) {
   const searchParams = new URLSearchParams({
-    page: '1',
-    pageSize: '100',
+    page: String(params.page ?? 1),
+    pageSize: String(params.pageSize ?? 24),
   });
 
   if (params.q) {
@@ -105,11 +113,7 @@ export function listWorlds(params: { q?: string; genre?: string; tone?: string }
   }
 
   return apiClient.get<{
-    pagination: {
-      page: number;
-      pageSize: number;
-      total: number;
-    };
+    pagination: WorldsPagination;
     worlds: WorldSummary[];
   }>(`/worlds?${searchParams.toString()}`);
 }
