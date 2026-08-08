@@ -36,7 +36,7 @@ function authHeader(userId = founder.id) {
       hiveUsername: founder.hiveUsername,
       normalizedHiveUsername: founder.normalizedHiveUsername,
       platformRole: PlatformRole.USER,
-      sid: 'session-1',
+      sid: `session-${userId}`,
       sub: userId,
     },
     {
@@ -137,11 +137,19 @@ function createDatabase() {
     status: ProposalStatus;
   }> = [];
 
-  function includeWorld(world: StoredWorld) {
+  function includeWorld(
+    world: StoredWorld,
+    args: { include?: { bibleVersions?: { where?: { publishedAt?: { not?: null } } } } } = {},
+  ) {
+    const publishedOnly = args.include?.bibleVersions?.where?.publishedAt?.not === null;
+
     return {
       ...world,
       bibleVersions: bibleVersions
-        .filter((version) => version.worldId === world.id)
+        .filter(
+          (version) =>
+            version.worldId === world.id && (!publishedOnly || version.publishedAt !== null),
+        )
         .sort((left, right) => right.versionNumber - left.versionNumber)
         .slice(0, 1),
       founder: world.founder,
@@ -180,6 +188,30 @@ function createDatabase() {
         ).length;
       },
     },
+    refreshSession: {
+      async findUnique(args: {
+        select: {
+          expiresAt: true;
+          revokedAt: true;
+          userId: true;
+        };
+        where: {
+          id: string;
+        };
+      }) {
+        const userId = args.where.id.replace(/^session-/, '');
+
+        if (userId !== founder.id && userId !== contributor.id) {
+          return null;
+        }
+
+        return {
+          expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+          revokedAt: null,
+          userId,
+        };
+      },
+    },
     world: {
       async count() {
         return worlds.length;
@@ -202,10 +234,19 @@ function createDatabase() {
         worlds.push(world);
         return world;
       },
-      async findMany(args: { take: number; skip: number }) {
-        return worlds.slice(args.skip, args.skip + args.take).map(includeWorld);
+      async findMany(args: {
+        include?: { bibleVersions?: { where?: { publishedAt?: { not?: null } } } };
+        take: number;
+        skip: number;
+      }) {
+        return worlds
+          .slice(args.skip, args.skip + args.take)
+          .map((world) => includeWorld(world, args));
       },
-      async findUnique(args: { where: { id?: string; slug?: string } }) {
+      async findUnique(args: {
+        include?: { bibleVersions?: { where?: { publishedAt?: { not?: null } } } };
+        where: { id?: string; slug?: string };
+      }) {
         const world = worlds.find((candidate) => {
           if (args.where.id) {
             return candidate.id === args.where.id;
@@ -214,16 +255,19 @@ function createDatabase() {
           return candidate.slug === args.where.slug;
         });
 
-        return world ? includeWorld(world) : null;
+        return world ? includeWorld(world, args) : null;
       },
-      async findUniqueOrThrow(args: { where: { id: string } }) {
+      async findUniqueOrThrow(args: {
+        include?: { bibleVersions?: { where?: { publishedAt?: { not?: null } } } };
+        where: { id: string };
+      }) {
         const world = worlds.find((candidate) => candidate.id === args.where.id);
 
         if (!world) {
           throw new Error('Missing world.');
         }
 
-        return includeWorld(world);
+        return includeWorld(world, args);
       },
       async update(args: {
         data: Partial<Pick<StoredWorld, 'description' | 'title'>>;
@@ -516,9 +560,12 @@ describe('world routes', () => {
 
     assert.equal(listResponse.statusCode, 200);
     assert.equal(listResponse.json().pagination.total, 1);
+    assert.equal(listResponse.json().worlds[0].currentBibleVersion, null);
     assert.equal(getResponse.statusCode, 200);
     assert.equal(getResponse.json().world.seed.mainConflict, worldPayload.seed.mainConflict);
+    assert.equal(getResponse.json().world.currentBibleVersion, null);
     assert.equal(hubResponse.statusCode, 200);
+    assert.equal(hubResponse.json().world.currentBibleVersion, null);
     assert.equal(hubResponse.json().stats.canonLoreCount, 1);
     assert.equal(hubResponse.json().stats.activeProposalCount, 1);
     assert.equal('draftLoreCount' in hubResponse.json().stats, false);
@@ -529,6 +576,58 @@ describe('world routes', () => {
         .latestLoreEntries.some((entry: { id: string }) => entry.id === 'draft-lore'),
       false,
     );
+    await app.close();
+  });
+
+  test('public world responses expose only published bible versions', async () => {
+    const state = createDatabase();
+    const app = await createApp(state.database);
+    await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: worldPayload,
+      url: '/worlds',
+    });
+    state.bibleVersions.push({
+      changeSummary: 'Published bible.',
+      content: {
+        rules: ['Published canon only.'],
+      },
+      createdAt: new Date('2026-08-05T00:04:00.000Z'),
+      creatorId: founder.id,
+      hiveReferenceId: 'hive-ref-1',
+      id: 'bible-2',
+      publishedAt: new Date('2026-08-05T00:05:00.000Z'),
+      updatedAt: new Date('2026-08-05T00:05:00.000Z'),
+      versionNumber: 2,
+      worldId: 'world-1',
+    });
+    state.bibleVersions.push({
+      changeSummary: 'Private draft.',
+      content: {
+        rules: ['Do not expose this draft.'],
+      },
+      createdAt: new Date('2026-08-05T00:06:00.000Z'),
+      creatorId: founder.id,
+      hiveReferenceId: null,
+      id: 'bible-3',
+      publishedAt: null,
+      updatedAt: new Date('2026-08-05T00:06:00.000Z'),
+      versionNumber: 3,
+      worldId: 'world-1',
+    });
+
+    const hubResponse = await app.inject({
+      method: 'GET',
+      url: '/worlds/world-1/hub',
+    });
+
+    assert.equal(hubResponse.statusCode, 200);
+    assert.equal(hubResponse.json().world.currentBibleVersion.versionNumber, 2);
+    assert.deepEqual(hubResponse.json().world.currentBibleVersion.content, {
+      rules: ['Published canon only.'],
+    });
+
     await app.close();
   });
 

@@ -65,7 +65,7 @@ export type WorldHub = {
   }>;
 };
 
-export type WorldSort = 'newest' | 'most-active' | 'highest-reputation' | 'most-canon';
+export type WorldSort = 'newest' | 'most-active';
 
 export type CreateWorldInput = {
   title: string;

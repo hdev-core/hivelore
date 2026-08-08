@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -51,6 +51,12 @@ export default function NewWorldPage() {
   const [title, setTitle] = useState('');
   const [tone, setTone] = useState('');
   const [worldRules, setWorldRules] = useState('');
+
+  useEffect(() => {
+    if (!getStoredAccessToken()) {
+      router.replace('/login');
+    }
+  }, [router]);
 
   const canSubmit = useMemo(
     () =>

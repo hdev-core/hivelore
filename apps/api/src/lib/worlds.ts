@@ -69,9 +69,63 @@ const worldInclude = {
   seed: true,
 } as const;
 
-type WorldWithRelations = Prisma.WorldGetPayload<{
-  include: typeof worldInclude;
-}>;
+const publicWorldInclude = {
+  ...worldInclude,
+  bibleVersions: {
+    orderBy: {
+      versionNumber: 'desc',
+    },
+    take: 1,
+    where: {
+      publishedAt: {
+        not: null,
+      },
+    },
+  },
+} as const;
+
+type WorldWithRelations = {
+  bibleVersions: Array<{
+    changeSummary: string | null;
+    content: Prisma.JsonValue;
+    createdAt: Date;
+    creatorId: string;
+    hiveReferenceId: string | null;
+    id: string;
+    publishedAt: Date | null;
+    updatedAt: Date;
+    versionNumber: number;
+    worldId: string;
+  }>;
+  createdAt: Date;
+  description: string;
+  founder: {
+    avatarUrl: string | null;
+    displayName: string | null;
+    hiveUsername: string;
+    id: string;
+    normalizedHiveUsername: string;
+  };
+  founderId: string;
+  id: string;
+  seed: {
+    createdAt: Date;
+    firstCharacters: Prisma.JsonValue;
+    firstFactions: Prisma.JsonValue;
+    firstHistoricalEvent: string | null;
+    genre: string;
+    id: string;
+    mainConflict: string;
+    premise: string;
+    startingLocation: string | null;
+    tone: string;
+    updatedAt: Date;
+    worldId: string;
+  } | null;
+  slug: string;
+  title: string;
+  updatedAt: Date;
+};
 
 export function createSlug(title: string) {
   const slug = title
@@ -255,7 +309,7 @@ export async function listWorlds(
 ) {
   const page = input.page ?? 1;
   const pageSize = input.pageSize ?? 20;
-  const where: Prisma.WorldWhereInput = {};
+  const where: NonNullable<Prisma.Args<WorldDatabase['world'], 'findMany'>['where']> = {};
 
   if (input.q) {
     where.OR = [
@@ -297,7 +351,7 @@ export async function listWorlds(
 
   const [worlds, total] = await Promise.all([
     database.world.findMany({
-      include: worldInclude,
+      include: publicWorldInclude,
       orderBy: [
         {
           createdAt: 'desc',
@@ -327,7 +381,7 @@ export async function listWorlds(
 
 export async function getWorld(database: WorldDatabase, worldId: string) {
   const world = await database.world.findUnique({
-    include: worldInclude,
+    include: publicWorldInclude,
     where: {
       id: worldId,
     },

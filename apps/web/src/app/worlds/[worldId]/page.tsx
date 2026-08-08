@@ -98,8 +98,16 @@ function WorldHubContent({ hub }: { hub: WorldHub }) {
               Write Story Contribution
             </Link>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <Button variant="outline">View Timeline</Button>
-              <Button variant="outline">View Map</Button>
+              <Button
+                disabled
+                title="Timeline is not available in this milestone."
+                variant="outline"
+              >
+                View Timeline
+              </Button>
+              <Button disabled title="Map is not available in this milestone." variant="outline">
+                View Map
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -222,7 +230,12 @@ function WorldHubContent({ hub }: { hub: WorldHub }) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" variant="secondary">
+            <Button
+              className="w-full"
+              disabled
+              title="AI guide is not available in this milestone."
+              variant="secondary"
+            >
               Ask AI Guide
             </Button>
           </CardContent>

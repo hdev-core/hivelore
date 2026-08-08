@@ -16,8 +16,6 @@ import { quickFilters } from '@/lib/worlds/constants';
 const sortLabels: Record<WorldSort, string> = {
   newest: 'Newest',
   'most-active': 'Most active',
-  'highest-reputation': 'Highest reputation',
-  'most-canon': 'Most canon entries',
 };
 
 function getErrorMessage(error: unknown) {
@@ -46,14 +44,7 @@ function sortWorlds(worlds: WorldSummary[], sort: WorldSort) {
       return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
     }
 
-    if (sort === 'highest-reputation') {
-      return getFounderName(left).localeCompare(getFounderName(right));
-    }
-
-    return (
-      (right.currentBibleVersion?.versionNumber ?? 0) -
-      (left.currentBibleVersion?.versionNumber ?? 0)
-    );
+    return getFounderName(left).localeCompare(getFounderName(right));
   });
 }
 
