@@ -49,9 +49,9 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
   const incomingRelations = entry.incomingRelations ?? [];
 
   return (
-    <div className="space-y-8">
-      <section className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <div>
+    <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
+      <main className="space-y-6">
+        <section>
           <div className="flex flex-wrap gap-2">
             <Badge>
               {getLoreTypeLabel(getCardEntityTypeFromApiType(entry.loreType, entry.content))}
@@ -64,7 +64,96 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
             {entry.title}
           </h1>
           <p className="prose-text mt-5 max-w-2xl">{getEntrySummary(entry) || 'No summary yet.'}</p>
-        </div>
+        </section>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Description</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {body ? (
+              <p className="prose-text max-w-none whitespace-pre-wrap">{body}</p>
+            ) : (
+              <p className="text-sm leading-6 text-muted-foreground">No description yet.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <section className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Structured fields</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {Object.keys(fields).length ? (
+                <dl className="grid gap-4 text-sm">
+                  {Object.entries(fields).map(([key, value]) => (
+                    <div key={key}>
+                      <dt className="font-semibold capitalize text-muted-foreground">
+                        {key.replaceAll('-', ' ')}
+                      </dt>
+                      <dd className="mt-1 leading-6">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm leading-6 text-muted-foreground">No structured fields yet.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Connected lore</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {outgoingRelations.length || incomingRelations.length ? (
+                <ul className="space-y-3">
+                  {outgoingRelations.map((relationship) => (
+                    <li className="text-sm leading-6" key={relationship.id}>
+                      <span className="font-semibold capitalize">
+                        {relationship.relationType.replaceAll('_', ' ')}
+                      </span>{' '}
+                      {relationship.target ? (
+                        <Link
+                          className="text-[var(--hive-red)] underline-offset-4 hover:underline"
+                          href={`/worlds/${worldId}/lore/${relationship.target.id}`}
+                        >
+                          {relationship.target.title}
+                        </Link>
+                      ) : (
+                        'Unknown entry'
+                      )}
+                    </li>
+                  ))}
+                  {incomingRelations.map((relationship) => (
+                    <li className="text-sm leading-6" key={relationship.id}>
+                      {relationship.source ? (
+                        <Link
+                          className="text-[var(--hive-red)] underline-offset-4 hover:underline"
+                          href={`/worlds/${worldId}/lore/${relationship.source.id}`}
+                        >
+                          {relationship.source.title}
+                        </Link>
+                      ) : (
+                        'Unknown entry'
+                      )}{' '}
+                      <span className="font-semibold capitalize">
+                        {relationship.relationType.replaceAll('_', ' ')}
+                      </span>{' '}
+                      this entry
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm leading-6 text-muted-foreground">No connections yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      </main>
+
+      <aside className="space-y-6">
         <Card variant="elevated">
           <CardHeader>
             <CardTitle>Actions</CardTitle>
@@ -91,21 +180,6 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
                 Back to world
               </Link>
             </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Description</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {body ? (
-              <p className="prose-text max-w-none whitespace-pre-wrap">{body}</p>
-            ) : (
-              <p className="text-sm leading-6 text-muted-foreground">No description yet.</p>
-            )}
           </CardContent>
         </Card>
 
@@ -137,80 +211,7 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
             </dl>
           </CardContent>
         </Card>
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Structured fields</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {Object.keys(fields).length ? (
-              <dl className="grid gap-4 text-sm">
-                {Object.entries(fields).map(([key, value]) => (
-                  <div key={key}>
-                    <dt className="font-semibold capitalize text-muted-foreground">
-                      {key.replaceAll('-', ' ')}
-                    </dt>
-                    <dd className="mt-1 leading-6">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : (
-              <p className="text-sm leading-6 text-muted-foreground">No structured fields yet.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Connected lore</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {outgoingRelations.length || incomingRelations.length ? (
-              <ul className="space-y-3">
-                {outgoingRelations.map((relationship) => (
-                  <li className="text-sm leading-6" key={relationship.id}>
-                    <span className="font-semibold capitalize">
-                      {relationship.relationType.replaceAll('_', ' ')}
-                    </span>{' '}
-                    {relationship.target ? (
-                      <Link
-                        className="text-[var(--hive-red)] underline-offset-4 hover:underline"
-                        href={`/worlds/${worldId}/lore/${relationship.target.id}`}
-                      >
-                        {relationship.target.title}
-                      </Link>
-                    ) : (
-                      'Unknown entry'
-                    )}
-                  </li>
-                ))}
-                {incomingRelations.map((relationship) => (
-                  <li className="text-sm leading-6" key={relationship.id}>
-                    {relationship.source ? (
-                      <Link
-                        className="text-[var(--hive-red)] underline-offset-4 hover:underline"
-                        href={`/worlds/${worldId}/lore/${relationship.source.id}`}
-                      >
-                        {relationship.source.title}
-                      </Link>
-                    ) : (
-                      'Unknown entry'
-                    )}{' '}
-                    <span className="font-semibold capitalize">
-                      {relationship.relationType.replaceAll('_', ' ')}
-                    </span>{' '}
-                    this entry
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm leading-6 text-muted-foreground">No connections yet.</p>
-            )}
-          </CardContent>
-        </Card>
-      </section>
+      </aside>
     </div>
   );
 }
