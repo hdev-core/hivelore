@@ -102,6 +102,24 @@ export function getEntryBody(entry: Pick<LoreEntry, 'content'>) {
   return typeof entry.content.body === 'string' ? entry.content.body : '';
 }
 
+export function getReadableBodyText(body: string) {
+  return body
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export function getEntryTags(entry: Pick<LoreEntry, 'content'>) {
   if (!isLoreEntryContent(entry.content) || !Array.isArray(entry.content.tags)) {
     return [];

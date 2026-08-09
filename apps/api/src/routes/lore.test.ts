@@ -161,6 +161,7 @@ function createDatabase() {
 
   function includeRelatedEntry(entry: StoredLoreEntry) {
     return {
+      authorId: entry.authorId,
       id: entry.id,
       loreType: entry.loreType,
       slug: entry.slug,
@@ -234,6 +235,13 @@ function createDatabase() {
       },
     },
     loreRelationship: {
+      async count(args: { where: Record<string, unknown> }) {
+        return loreRelationships.filter((relationship) =>
+          Object.entries(args.where).every(
+            ([key, value]) => relationship[key as keyof StoredLoreRelationship] === value,
+          ),
+        ).length;
+      },
       async create(args: { data: Partial<StoredLoreRelationship>; select?: unknown }) {
         if (
           loreRelationships.some(
@@ -309,6 +317,10 @@ function createDatabase() {
           ...relationship,
           source: {
             authorId: loreEntries.find((entry) => entry.id === relationship.sourceId)!.authorId,
+            status: loreEntries.find((entry) => entry.id === relationship.sourceId)!.status,
+          },
+          target: {
+            status: loreEntries.find((entry) => entry.id === relationship.targetId)!.status,
           },
         };
       },
@@ -406,6 +418,16 @@ describe('lore routes', () => {
       WorldRole.CONTRIBUTOR;
     state.loreEntries.push(createLoreRecord({ id: 'own-draft' }));
     state.loreEntries.push(createLoreRecord({ authorId: otherUser.id, id: 'other-draft' }));
+    state.loreRelationships.push({
+      createdAt: now(),
+      id: 'relationship-private',
+      metadata: null,
+      relationType: 'knows',
+      sourceId: 'own-draft',
+      targetId: 'other-draft',
+      updatedAt: now(),
+      worldId: 'world-1',
+    });
     const app = await createApp(state.database);
 
     const anonymousResponse = await app.inject({
@@ -428,12 +450,18 @@ describe('lore routes', () => {
       authorResponse.json().entries.map((entry: { id: string }) => entry.id),
       ['own-draft'],
     );
+    assert.equal(authorResponse.json().entries[0].outgoingRelations.length, 0);
     assert.deepEqual(
       curatorResponse
         .json()
         .entries.map((entry: { id: string }) => entry.id)
         .sort(),
       ['other-draft', 'own-draft'],
+    );
+    assert.equal(
+      curatorResponse.json().entries.find((entry: { id: string }) => entry.id === 'own-draft')
+        .outgoingRelations.length,
+      1,
     );
     await app.close();
   });
@@ -671,6 +699,59 @@ describe('lore routes', () => {
     assert.equal(deleted.statusCode, 204);
     assert.equal(state.loreRelationships.length, 0);
     assert.equal(state.worldAuditLogs.length >= 2, true);
+    await app.close();
+  });
+
+  test('relationships cannot mutate canon entries without proposal governance', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'canon-source',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Canon Source',
+      }),
+    );
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'canon-target',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Canon Target',
+      }),
+    );
+    state.loreRelationships.push({
+      createdAt: now(),
+      id: 'canon-relationship',
+      metadata: null,
+      relationType: 'enemy_of',
+      sourceId: 'canon-source',
+      targetId: 'canon-target',
+      updatedAt: now(),
+      worldId: 'world-1',
+    });
+    const app = await createApp(state.database);
+
+    const created = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: 'allied_with',
+        targetId: 'canon-target',
+      },
+      url: '/worlds/world-1/lore/canon-source/relationships',
+    });
+    const deleted = await app.inject({
+      headers: authHeader(curator),
+      method: 'DELETE',
+      url: '/worlds/world-1/lore/canon-source/relationships/canon-relationship',
+    });
+
+    assert.equal(created.statusCode, 409);
+    assert.equal(created.json().error, 'Only draft lore entries can be linked here.');
+    assert.equal(deleted.statusCode, 409);
+    assert.equal(deleted.json().error, 'Only draft lore relationships can be deleted here.');
+    assert.equal(state.loreRelationships.length, 1);
     await app.close();
   });
 

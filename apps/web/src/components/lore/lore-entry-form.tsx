@@ -29,6 +29,7 @@ import {
   getEntryFields,
   getEntrySummary,
   getEntryTags,
+  getReadableBodyText,
 } from './lore-utils';
 
 const defaultLoreTypeOption = loreTypes[0]!;
@@ -141,7 +142,7 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     () =>
       title.trim().length > 0 &&
       summary.trim().length > 0 &&
-      body.trim().length > 0 &&
+      getReadableBodyText(body).length > 0 &&
       !isSubmitting,
     [body, isSubmitting, summary, title],
   );
@@ -161,11 +162,20 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     let isActive = true;
 
     async function loadTargets(currentEntry: LoreEntry) {
+      const accessToken = getStoredAccessToken();
+
+      if (!accessToken || currentEntry.status !== 'DRAFT') {
+        setTargetEntries([]);
+        setTargetId('');
+        setIsLoadingTargets(false);
+        return;
+      }
+
       setIsLoadingTargets(true);
       setRelationshipError(null);
 
       try {
-        const response = await listLoreEntries(worldId);
+        const response = await listLoreEntries(worldId, { status: 'DRAFT' }, accessToken);
         const availableTargets = response.entries.filter(
           (candidate) => candidate.id !== currentEntry.id,
         );
@@ -413,7 +423,11 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
         <Card>
           <CardHeader>
             <CardTitle>Relationship graph</CardTitle>
-            <CardDescription>Link this entry to another lore entity.</CardDescription>
+            <CardDescription>
+              {entry.status === 'DRAFT'
+                ? 'Link this draft to another draft lore entity.'
+                : 'Published canon relationships go through proposals and voting.'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {relationshipError ? (
@@ -436,7 +450,7 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
               </Select>
               <Select
                 aria-label="Target lore entry"
-                disabled={isLoadingTargets || !targetEntries.length}
+                disabled={entry.status !== 'DRAFT' || isLoadingTargets || !targetEntries.length}
                 onChange={(event) => setTargetId(event.target.value)}
                 value={targetId}
               >
@@ -451,7 +465,7 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
                 )}
               </Select>
               <Button
-                disabled={!targetId || isLinking}
+                disabled={entry.status !== 'DRAFT' || !targetId || isLinking}
                 isLoading={isLinking}
                 onClick={handleAddRelationship}
                 type="button"
@@ -474,14 +488,16 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
                       </span>{' '}
                       {relationship.target?.title}
                     </span>
-                    <Button
-                      disabled={isLinking}
-                      onClick={() => handleDeleteRelationship(relationship.id)}
-                      type="button"
-                      variant="outline"
-                    >
-                      Remove
-                    </Button>
+                    {entry.status === 'DRAFT' ? (
+                      <Button
+                        disabled={isLinking}
+                        onClick={() => handleDeleteRelationship(relationship.id)}
+                        type="button"
+                        variant="outline"
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
                   </li>
                 ))}
               </ul>

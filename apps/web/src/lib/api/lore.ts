@@ -52,6 +52,7 @@ export type LoreEntryInput = {
 export function listLoreEntries(
   worldId: string,
   params: { loreType?: LoreType; q?: string; status?: LoreStatus } = {},
+  accessToken?: string | null,
 ) {
   const searchParams = new URLSearchParams({
     page: '1',
@@ -77,12 +78,29 @@ export function listLoreEntries(
       pageSize: number;
       total: number;
     };
-  }>(`/worlds/${encodeURIComponent(worldId)}/lore?${searchParams.toString()}`);
+  }>(`/worlds/${encodeURIComponent(worldId)}/lore?${searchParams.toString()}`, {
+    ...(accessToken
+      ? {
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+          },
+        }
+      : {}),
+  });
 }
 
-export function getLoreEntry(worldId: string, entryId: string) {
+export function getLoreEntry(worldId: string, entryId: string, accessToken?: string | null) {
   return apiClient.get<{ entry: LoreEntry }>(
     `/worlds/${encodeURIComponent(worldId)}/lore/${encodeURIComponent(entryId)}`,
+    {
+      ...(accessToken
+        ? {
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+            },
+          }
+        : {}),
+    },
   );
 }
 

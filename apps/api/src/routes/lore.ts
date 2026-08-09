@@ -16,6 +16,8 @@ import { roleHasWorldPermission, WORLD_PERMISSIONS } from '../lib/world-permissi
 
 const STRUCTURED_CONTENT_MAX_BYTES = 100 * 1024;
 const STRUCTURED_CONTENT_MAX_DEPTH = 32;
+const RELATIONSHIP_METADATA_MAX_BYTES = 16 * 1024;
+const MAX_RELATIONSHIPS_PER_ENTRY = 100;
 const RELATION_TYPE_MAX_LENGTH = 80;
 
 type LoreDatabase = Pick<
@@ -105,6 +107,7 @@ const loreEntryInclude = {
       relationType: true,
       source: {
         select: {
+          authorId: true,
           id: true,
           loreType: true,
           slug: true,
@@ -120,6 +123,7 @@ const loreEntryInclude = {
       relationType: true,
       target: {
         select: {
+          authorId: true,
           id: true,
           loreType: true,
           slug: true,
@@ -157,9 +161,17 @@ function serializeDate(value: Date | null) {
   return value?.toISOString() ?? null;
 }
 
-function serializeLoreEntry(entry: LoreEntryWithRelations, includeNonPublicRelations = false) {
-  const canShowRelatedEntry = (relatedEntry: { status: LoreStatus }) =>
-    includeNonPublicRelations || relatedEntry.status === LoreStatus.PUBLISHED_CANON;
+function serializeLoreEntry(
+  entry: LoreEntryWithRelations,
+  options: {
+    includeAllNonPublicRelations?: boolean;
+    viewerId?: string | undefined;
+  } = {},
+) {
+  const canShowRelatedEntry = (relatedEntry: { authorId?: string; status: LoreStatus }) =>
+    relatedEntry.status === LoreStatus.PUBLISHED_CANON ||
+    options.includeAllNonPublicRelations ||
+    ('authorId' in relatedEntry && relatedEntry.authorId === options.viewerId);
 
   return {
     author: entry.author,
@@ -168,13 +180,33 @@ function serializeLoreEntry(entry: LoreEntryWithRelations, includeNonPublicRelat
     createdAt: entry.createdAt.toISOString(),
     hiveReferenceId: entry.hiveReferenceId,
     id: entry.id,
-    incomingRelations: entry.incomingRelations.filter((relation) =>
-      canShowRelatedEntry(relation.source),
-    ),
+    incomingRelations: entry.incomingRelations
+      .filter((relation) => canShowRelatedEntry(relation.source))
+      .map((relation) => ({
+        id: relation.id,
+        relationType: relation.relationType,
+        source: {
+          id: relation.source.id,
+          loreType: relation.source.loreType,
+          slug: relation.source.slug,
+          status: relation.source.status,
+          title: relation.source.title,
+        },
+      })),
     loreType: entry.loreType,
-    outgoingRelations: entry.outgoingRelations.filter((relation) =>
-      canShowRelatedEntry(relation.target),
-    ),
+    outgoingRelations: entry.outgoingRelations
+      .filter((relation) => canShowRelatedEntry(relation.target))
+      .map((relation) => ({
+        id: relation.id,
+        relationType: relation.relationType,
+        target: {
+          id: relation.target.id,
+          loreType: relation.target.loreType,
+          slug: relation.target.slug,
+          status: relation.target.status,
+          title: relation.target.title,
+        },
+      })),
     publishedAt: serializeDate(entry.publishedAt),
     slug: entry.slug,
     status: entry.status,
@@ -244,6 +276,16 @@ function validateLoreContent(value: unknown): Prisma.InputJsonValue {
 
   if (body !== undefined && typeof body !== 'string') {
     throw new LoreRouteError(400, 'Lore body must be a string.');
+  }
+
+  return validateJsonValue(value);
+}
+
+function validateRelationshipMetadata(value: unknown): Prisma.InputJsonValue {
+  const serialized = JSON.stringify(value);
+
+  if (!serialized || Buffer.byteLength(serialized, 'utf8') > RELATIONSHIP_METADATA_MAX_BYTES) {
+    throw new LoreRouteError(400, 'Relationship metadata exceeds the 16 KB limit.');
   }
 
   return validateJsonValue(value);
@@ -338,6 +380,10 @@ function sendLoreError(error: unknown, reply: FastifyReply) {
   throw error;
 }
 
+function isPrismaUniqueConflict(error: unknown) {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+}
+
 async function createLoreAuditLog(
   database: Pick<LoreDatabase, 'worldAuditLog'>,
   input: {
@@ -424,6 +470,7 @@ async function scopeNonPublicLoreList(
   if (roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.EDIT_ANY_DRAFT)) {
     return {
       allowed: true as const,
+      includeAllNonPublicRelations: true,
       where: {},
     };
   }
@@ -431,6 +478,7 @@ async function scopeNonPublicLoreList(
   if (roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.EDIT_OWN_DRAFT)) {
     return {
       allowed: true as const,
+      includeAllNonPublicRelations: false,
       where: {
         authorId: user.id,
       },
@@ -472,6 +520,22 @@ async function canMutateDraft(
   );
 }
 
+async function canViewAllNonPublicLore(
+  request: FastifyRequest,
+  database: LoreDatabase & WorldMembershipLookup,
+  worldId: string,
+) {
+  if (!request.user) {
+    return false;
+  }
+
+  const membership = await resolveWorldMembership(request, worldId, database);
+
+  return Boolean(
+    membership && roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.EDIT_ANY_DRAFT),
+  );
+}
+
 export async function registerLoreRoutes(
   app: FastifyInstance,
   options: RegisterLoreRoutesOptions = {},
@@ -500,6 +564,7 @@ export async function registerLoreRoutes(
     const requestedStatus = query.data.status ?? LoreStatus.PUBLISHED_CANON;
     const page = query.data.page;
     const pageSize = query.data.pageSize;
+    let includeAllNonPublicRelations = false;
     const where: Prisma.LoreEntryWhereInput = {
       ...(query.data.loreType ? { loreType: query.data.loreType } : {}),
       ...(query.data.q
@@ -530,6 +595,7 @@ export async function registerLoreRoutes(
         });
       }
 
+      includeAllNonPublicRelations = scope.includeAllNonPublicRelations;
       Object.assign(where, scope.where);
     }
 
@@ -555,7 +621,10 @@ export async function registerLoreRoutes(
 
     return {
       entries: entries.map((entry) =>
-        serializeLoreEntry(entry, requestedStatus !== LoreStatus.PUBLISHED_CANON),
+        serializeLoreEntry(entry, {
+          includeAllNonPublicRelations,
+          viewerId: request.user?.id,
+        }),
       ),
       pagination: {
         page,
@@ -596,7 +665,7 @@ export async function registerLoreRoutes(
       });
     }
 
-    const canViewNonPublicRelations = await canReadNonPublicLore(
+    const canReadEntry = await canReadNonPublicLore(
       request,
       database,
       params.data.worldId,
@@ -604,21 +673,36 @@ export async function registerLoreRoutes(
     );
 
     if (entry.status !== LoreStatus.PUBLISHED_CANON) {
-      if (!canViewNonPublicRelations) {
+      if (!canReadEntry) {
         return reply.code(404).send({
           error: 'Lore entry not found.',
         });
       }
     }
 
+    const includeAllNonPublicRelations = await canViewAllNonPublicLore(
+      request,
+      database,
+      params.data.worldId,
+    );
+
     return {
-      entry: serializeLoreEntry(entry, canViewNonPublicRelations),
+      entry: serializeLoreEntry(entry, {
+        includeAllNonPublicRelations,
+        viewerId: request.user?.id,
+      }),
     };
   });
 
   app.post(
     '/worlds/:worldId/lore/:entryId/relationships',
     {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+        },
+      },
       preHandler: requireSession(routeAuthOptions),
     },
     async (request, reply) => {
@@ -673,6 +757,12 @@ export async function registerLoreRoutes(
         });
       }
 
+      if (source.status !== LoreStatus.DRAFT || target.status !== LoreStatus.DRAFT) {
+        return reply.code(409).send({
+          error: 'Only draft lore entries can be linked here.',
+        });
+      }
+
       const permitted = await canMutateDraft(
         request,
         database,
@@ -687,12 +777,25 @@ export async function registerLoreRoutes(
       }
 
       try {
+        const existingRelationshipCount = await database.loreRelationship.count({
+          where: {
+            sourceId: source.id,
+            worldId: params.data.worldId,
+          },
+        });
+
+        if (existingRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY) {
+          return reply.code(409).send({
+            error: 'This lore entry has reached the relationship limit.',
+          });
+        }
+
         const relationship = await database.$transaction(async (transaction) => {
           const created = await transaction.loreRelationship.create({
             data: {
               ...(body.data.metadata === undefined
                 ? {}
-                : { metadata: validateJsonValue(body.data.metadata) }),
+                : { metadata: validateRelationshipMetadata(body.data.metadata) }),
               relationType: body.data.relationType.trim(),
               sourceId: source.id,
               targetId: target.id,
@@ -735,12 +838,7 @@ export async function registerLoreRoutes(
           relationship,
         });
       } catch (error) {
-        if (
-          typeof error === 'object' &&
-          error !== null &&
-          'code' in error &&
-          error.code === 'P2002'
-        ) {
+        if (isPrismaUniqueConflict(error)) {
           return reply.code(409).send({
             error: 'This lore relationship already exists.',
           });
@@ -754,6 +852,12 @@ export async function registerLoreRoutes(
   app.delete(
     '/worlds/:worldId/lore/:entryId/relationships/:relationshipId',
     {
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: '1 minute',
+        },
+      },
       preHandler: requireSession(routeAuthOptions),
     },
     async (request, reply) => {
@@ -782,6 +886,12 @@ export async function registerLoreRoutes(
           source: {
             select: {
               authorId: true,
+              status: true,
+            },
+          },
+          target: {
+            select: {
+              status: true,
             },
           },
         },
@@ -795,6 +905,15 @@ export async function registerLoreRoutes(
       if (!relationship) {
         return reply.code(404).send({
           error: 'Lore relationship not found.',
+        });
+      }
+
+      if (
+        relationship.source.status !== LoreStatus.DRAFT ||
+        relationship.target.status !== LoreStatus.DRAFT
+      ) {
+        return reply.code(409).send({
+          error: 'Only draft lore relationships can be deleted here.',
         });
       }
 
@@ -906,9 +1025,17 @@ export async function registerLoreRoutes(
         });
 
         return reply.code(201).send({
-          entry: serializeLoreEntry(entry),
+          entry: serializeLoreEntry(entry, {
+            viewerId: request.user.id,
+          }),
         });
       } catch (error) {
+        if (isPrismaUniqueConflict(error)) {
+          return reply.code(409).send({
+            error: 'A lore entry with this title already exists.',
+          });
+        }
+
         return sendLoreError(error, reply);
       }
     },
@@ -1009,9 +1136,17 @@ export async function registerLoreRoutes(
         });
 
         return {
-          entry: serializeLoreEntry(entry),
+          entry: serializeLoreEntry(entry, {
+            viewerId: request.user.id,
+          }),
         };
       } catch (error) {
+        if (isPrismaUniqueConflict(error)) {
+          return reply.code(409).send({
+            error: 'A lore entry with this title already exists.',
+          });
+        }
+
         return sendLoreError(error, reply);
       }
     },
