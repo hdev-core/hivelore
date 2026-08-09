@@ -262,7 +262,7 @@ function WorldHubContent({ hub }: { hub: WorldHub }) {
                     <div>
                       <p className="text-lg font-semibold">{category.label}</p>
                       <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        Entity CRUD is the next M2 card; this hub is ready to receive those entries.
+                        Add structured lore so this world can grow into navigable canon.
                       </p>
                     </div>
                     <Link

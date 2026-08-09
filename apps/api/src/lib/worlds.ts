@@ -229,6 +229,7 @@ async function generateUniqueWorldSlug(database: Pick<WorldDatabase, 'world'>, t
 export async function createWorld(database: WorldDatabase, input: CreateWorldInput) {
   const slug = await generateUniqueWorldSlug(database, input.title);
   const seed = normalizeSeedInput(input.seed);
+  const now = new Date();
 
   const world = await database.$transaction(async (transaction) => {
     const createdWorld = await transaction.world.create({
@@ -259,6 +260,7 @@ export async function createWorld(database: WorldDatabase, input: CreateWorldInp
         changeSummary: input.bible.changeSummary?.trim() || 'Initial world bible.',
         content: input.bible.content,
         creatorId: input.creatorId,
+        publishedAt: now,
         versionNumber: 1,
         worldId: createdWorld.id,
       },
@@ -287,7 +289,7 @@ export async function createWorld(database: WorldDatabase, input: CreateWorldInp
     });
 
     return transaction.world.findUniqueOrThrow({
-      include: worldInclude,
+      include: publicWorldInclude,
       where: {
         id: createdWorld.id,
       },
@@ -533,6 +535,7 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
         data: {
           changeSummary: input.bible.changeSummary?.trim() || currentBible.changeSummary,
           content: input.bible.content,
+          publishedAt: currentBible.publishedAt ?? new Date(),
         },
         where: {
           id: currentBible.id,
@@ -541,7 +544,7 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
     }
 
     return transaction.world.findUniqueOrThrow({
-      include: worldInclude,
+      include: publicWorldInclude,
       where: {
         id: input.worldId,
       },

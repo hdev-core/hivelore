@@ -298,6 +298,7 @@ function createDatabase() {
           changeSummary: string;
           content: unknown;
           creatorId: string;
+          publishedAt?: Date;
           versionNumber: number;
           worldId: string;
         };
@@ -307,14 +308,14 @@ function createDatabase() {
           createdAt: new Date('2026-08-05T00:00:00.000Z'),
           hiveReferenceId: null,
           id: `bible-${bibleVersions.length + 1}`,
-          publishedAt: null,
+          publishedAt: args.data.publishedAt ?? null,
           updatedAt: new Date('2026-08-05T00:00:00.000Z'),
         };
         bibleVersions.push(version);
         return version;
       },
       async update(args: {
-        data: Partial<Pick<StoredBibleVersion, 'changeSummary' | 'content'>>;
+        data: Partial<Pick<StoredBibleVersion, 'changeSummary' | 'content' | 'publishedAt'>>;
         where: { id: string };
       }) {
         const version = bibleVersions.find((candidate) => candidate.id === args.where.id);
@@ -456,10 +457,11 @@ describe('world routes', () => {
     assert.equal(response.json().world.title, 'Moon Archive');
     assert.equal(response.json().world.seed.genre, 'Fantasy');
     assert.equal(response.json().world.currentBibleVersion.versionNumber, 1);
-    assert.equal(response.json().world.currentBibleVersion.publishedAt, null);
+    assert.equal(typeof response.json().world.currentBibleVersion.publishedAt, 'string');
     assert.equal(state.worlds.length, 1);
     assert.equal(state.seeds.length, 1);
     assert.equal(state.bibleVersions.length, 1);
+    assert.notEqual(state.bibleVersions[0]?.publishedAt, null);
     assert.equal(state.memberships[0]?.role, WorldRole.FOUNDER);
     assert.deepEqual(state.auditLogs[0], {
       action: WorldAuditAction.ROLE_ASSIGNED,
@@ -560,12 +562,12 @@ describe('world routes', () => {
 
     assert.equal(listResponse.statusCode, 200);
     assert.equal(listResponse.json().pagination.total, 1);
-    assert.equal(listResponse.json().worlds[0].currentBibleVersion, null);
+    assert.equal(listResponse.json().worlds[0].currentBibleVersion.versionNumber, 1);
     assert.equal(getResponse.statusCode, 200);
     assert.equal(getResponse.json().world.seed.mainConflict, worldPayload.seed.mainConflict);
-    assert.equal(getResponse.json().world.currentBibleVersion, null);
+    assert.equal(getResponse.json().world.currentBibleVersion.versionNumber, 1);
     assert.equal(hubResponse.statusCode, 200);
-    assert.equal(hubResponse.json().world.currentBibleVersion, null);
+    assert.equal(hubResponse.json().world.currentBibleVersion.versionNumber, 1);
     assert.equal(hubResponse.json().stats.canonLoreCount, 1);
     assert.equal(hubResponse.json().stats.activeProposalCount, 1);
     assert.equal('draftLoreCount' in hubResponse.json().stats, false);
@@ -665,7 +667,7 @@ describe('world routes', () => {
     assert.deepEqual(response.json().world.currentBibleVersion.content, {
       rules: ['Keep the moon archive coherent.'],
     });
-    assert.equal(response.json().world.currentBibleVersion.publishedAt, null);
+    assert.equal(typeof response.json().world.currentBibleVersion.publishedAt, 'string');
     await app.close();
   });
 

@@ -28,6 +28,16 @@ type AuthSessionContextValue = {
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
 
+let refreshSessionPromise: Promise<AuthSessionResponse> | null = null;
+
+function refreshAuthSessionOnce() {
+  refreshSessionPromise ??= refreshAuthSession().finally(() => {
+    refreshSessionPromise = null;
+  });
+
+  return refreshSessionPromise;
+}
+
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
@@ -40,7 +50,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     try {
-      const session = await refreshAuthSession();
+      const session = await refreshAuthSessionOnce();
       setSession(session);
       return session;
     } catch (error) {
@@ -62,7 +72,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    refreshAuthSession()
+    refreshAuthSessionOnce()
       .then((session) => {
         if (isMounted) {
           setSession(session);
