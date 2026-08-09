@@ -48,6 +48,22 @@ export type ContributionInput = {
   title: string;
 };
 
+export type ContributionsQuery = {
+  kind?: ContributionKind;
+  page?: number;
+  pageSize?: number;
+  status?: ContributionStatus;
+};
+
+export type ContributionsListResponse = {
+  contributions: Contribution[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
+};
+
 function contributionPath(worldId: string, contributionId?: string) {
   const base = `/worlds/${encodeURIComponent(worldId)}/contributions`;
 
@@ -58,6 +74,36 @@ function authHeaders(accessToken: string) {
   return {
     authorization: `Bearer ${accessToken}`,
   };
+}
+
+function buildContributionListPath(worldId: string, query: ContributionsQuery = {}) {
+  const searchParams = new URLSearchParams();
+
+  if (query.kind) {
+    searchParams.set('kind', query.kind);
+  }
+
+  if (query.page) {
+    searchParams.set('page', String(query.page));
+  }
+
+  if (query.pageSize) {
+    searchParams.set('pageSize', String(query.pageSize));
+  }
+
+  if (query.status) {
+    searchParams.set('status', query.status);
+  }
+
+  const queryString = searchParams.toString();
+
+  return `${contributionPath(worldId)}${queryString ? `?${queryString}` : ''}`;
+}
+
+export function listContributions(worldId: string, query: ContributionsQuery, accessToken: string) {
+  return apiClient.get<ContributionsListResponse>(buildContributionListPath(worldId, query), {
+    headers: authHeaders(accessToken),
+  });
 }
 
 export function createContribution(worldId: string, input: ContributionInput, accessToken: string) {

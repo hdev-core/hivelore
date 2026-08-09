@@ -92,7 +92,7 @@ function WorldHubContent({ hub }: { hub: WorldHub }) {
             </Link>
             <Link
               className="inline-flex min-h-10 w-full items-center justify-center rounded-control border border-primary bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-              href={`/worlds/${world.id}/contribute?type=story`}
+              href={`/worlds/${world.id}/contribute?type=stories`}
             >
               Write Story Contribution
             </Link>
