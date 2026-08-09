@@ -8,9 +8,15 @@ export type LoreEntryContent = {
   body?: string;
   entityType?: string;
   fields?: Record<string, string>;
-  relationships?: string[];
   summary?: string;
   tags?: string[];
+};
+
+export type LoreRelationshipSummary = {
+  id: string;
+  relationType: string;
+  source?: Pick<LoreEntry, 'id' | 'loreType' | 'slug' | 'status' | 'title'>;
+  target?: Pick<LoreEntry, 'id' | 'loreType' | 'slug' | 'status' | 'title'>;
 };
 
 export type LoreEntry = {
@@ -32,16 +38,8 @@ export type LoreEntry = {
     displayName: string | null;
     avatarUrl: string | null;
   };
-  outgoingRelations?: Array<{
-    id: string;
-    relationType: string;
-    target: Pick<LoreEntry, 'id' | 'loreType' | 'slug' | 'status' | 'title'>;
-  }>;
-  incomingRelations?: Array<{
-    id: string;
-    relationType: string;
-    source: Pick<LoreEntry, 'id' | 'loreType' | 'slug' | 'status' | 'title'>;
-  }>;
+  outgoingRelations?: LoreRelationshipSummary[];
+  incomingRelations?: LoreRelationshipSummary[];
 };
 
 export type LoreEntryInput = {
@@ -120,6 +118,46 @@ export function updateLoreEntry(
 export function deleteLoreEntry(worldId: string, entryId: string, accessToken: string) {
   return apiClient.delete<{ ok: true }>(
     `/worlds/${encodeURIComponent(worldId)}/lore/${encodeURIComponent(entryId)}`,
+    undefined,
+    {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+}
+
+export function createLoreRelationship(
+  worldId: string,
+  entryId: string,
+  input: {
+    relationType: string;
+    targetId: string;
+    metadata?: Record<string, unknown>;
+  },
+  accessToken: string,
+) {
+  return apiClient.post<{ relationship: LoreRelationshipSummary }>(
+    `/worlds/${encodeURIComponent(worldId)}/lore/${encodeURIComponent(entryId)}/relationships`,
+    input,
+    {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+}
+
+export function deleteLoreRelationship(
+  worldId: string,
+  entryId: string,
+  relationshipId: string,
+  accessToken: string,
+) {
+  return apiClient.delete<void>(
+    `/worlds/${encodeURIComponent(worldId)}/lore/${encodeURIComponent(
+      entryId,
+    )}/relationships/${encodeURIComponent(relationshipId)}`,
     undefined,
     {
       headers: {

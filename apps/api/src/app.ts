@@ -8,6 +8,7 @@ import { prisma } from './lib/prisma.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerContributionRoutes } from './routes/contributions.js';
 import { registerHealthRoute } from './routes/health.js';
+import { registerLoreRoutes } from './routes/lore.js';
 import { registerWorldRoutes } from './routes/worlds.js';
 
 export async function buildApp() {
@@ -44,6 +45,7 @@ export async function buildApp() {
   await registerHealthRoute(app);
   await registerAuthRoutes(app);
   await registerWorldRoutes(app);
+  await registerLoreRoutes(app);
   await registerContributionRoutes(app);
 
   return app;

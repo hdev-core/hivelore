@@ -11,7 +11,16 @@ export type LoreCategory =
   | 'stories-contributions';
 
 export type LoreType =
-  'CHARACTER' | 'LOCATION' | 'FACTION' | 'EVENT' | 'ARTIFACT' | 'HISTORY' | 'RULE' | 'OTHER';
+  | 'CHARACTER'
+  | 'LOCATION'
+  | 'FACTION'
+  | 'QUEST'
+  | 'EVENT'
+  | 'STORY'
+  | 'ARTIFACT'
+  | 'HISTORY'
+  | 'RULE'
+  | 'OTHER';
 
 export type CanonEntryStatus = NonNullable<ComponentProps<typeof Badge>['variant']>;
 
@@ -47,7 +56,7 @@ export const loreTypes: Array<{
     type: 'CITY_KINGDOM',
   },
   { apiType: 'FACTION', categoryId: 'factions', label: 'Faction', type: 'FACTION' },
-  { apiType: 'OTHER', categoryId: 'quests', label: 'Quest', type: 'QUEST' },
+  { apiType: 'QUEST', categoryId: 'quests', label: 'Quest', type: 'QUEST' },
   {
     apiType: 'EVENT',
     categoryId: 'historical-events',
@@ -55,7 +64,7 @@ export const loreTypes: Array<{
     type: 'HISTORICAL_EVENT',
   },
   {
-    apiType: 'OTHER',
+    apiType: 'STORY',
     categoryId: 'stories-contributions',
     label: 'Story/Contribution',
     type: 'STORY_CONTRIBUTION',

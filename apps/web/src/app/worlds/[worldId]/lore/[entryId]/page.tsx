@@ -9,7 +9,6 @@ import { getLoreEntry, type LoreEntry } from '@/lib/api/lore';
 import {
   getEntryBody,
   getEntryFields,
-  getEntryRelationships,
   getEntrySummary,
   getEntryTags,
   getCardEntityTypeFromApiType,
@@ -45,8 +44,9 @@ async function loadLoreEntry(worldId: string, entryId: string) {
 function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: string }) {
   const body = getEntryBody(entry);
   const fields = getEntryFields(entry);
-  const relationships = getEntryRelationships(entry);
   const tags = getEntryTags(entry);
+  const outgoingRelations = entry.outgoingRelations ?? [];
+  const incomingRelations = entry.incomingRelations ?? [];
 
   return (
     <div className="space-y-8">
@@ -102,7 +102,7 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
           </CardHeader>
           <CardContent>
             {body ? (
-              <div className="prose-text max-w-none" dangerouslySetInnerHTML={{ __html: body }} />
+              <p className="prose-text max-w-none whitespace-pre-wrap">{body}</p>
             ) : (
               <p className="text-sm leading-6 text-muted-foreground">No description yet.</p>
             )}
@@ -167,11 +167,41 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
             <CardTitle>Connected lore</CardTitle>
           </CardHeader>
           <CardContent>
-            {relationships.length ? (
+            {outgoingRelations.length || incomingRelations.length ? (
               <ul className="space-y-3">
-                {relationships.map((relationship) => (
-                  <li className="text-sm leading-6" key={relationship}>
-                    {relationship}
+                {outgoingRelations.map((relationship) => (
+                  <li className="text-sm leading-6" key={relationship.id}>
+                    <span className="font-semibold capitalize">
+                      {relationship.relationType.replaceAll('_', ' ')}
+                    </span>{' '}
+                    {relationship.target ? (
+                      <Link
+                        className="text-[var(--hive-red)] underline-offset-4 hover:underline"
+                        href={`/worlds/${worldId}/lore/${relationship.target.id}`}
+                      >
+                        {relationship.target.title}
+                      </Link>
+                    ) : (
+                      'Unknown entry'
+                    )}
+                  </li>
+                ))}
+                {incomingRelations.map((relationship) => (
+                  <li className="text-sm leading-6" key={relationship.id}>
+                    {relationship.source ? (
+                      <Link
+                        className="text-[var(--hive-red)] underline-offset-4 hover:underline"
+                        href={`/worlds/${worldId}/lore/${relationship.source.id}`}
+                      >
+                        {relationship.source.title}
+                      </Link>
+                    ) : (
+                      'Unknown entry'
+                    )}{' '}
+                    <span className="font-semibold capitalize">
+                      {relationship.relationType.replaceAll('_', ' ')}
+                    </span>{' '}
+                    this entry
                   </li>
                 ))}
               </ul>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { RichTextEditor } from '@/components/editor/rich-text-editor';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -11,7 +11,15 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/api/errors';
-import { createLoreEntry, deleteLoreEntry, updateLoreEntry, type LoreEntry } from '@/lib/api/lore';
+import {
+  createLoreEntry,
+  createLoreRelationship,
+  deleteLoreEntry,
+  deleteLoreRelationship,
+  listLoreEntries,
+  updateLoreEntry,
+  type LoreEntry,
+} from '@/lib/api/lore';
 import { getStoredAccessToken } from '@/lib/api/session';
 import { loreTypes, type LoreType } from '@/lib/worlds/constants';
 
@@ -19,10 +27,8 @@ import {
   getLoreTypeOptionFromApiType,
   getEntryBody,
   getEntryFields,
-  getEntryRelationships,
   getEntrySummary,
   getEntryTags,
-  statusOptions,
 } from './lore-utils';
 
 const defaultLoreTypeOption = loreTypes[0]!;
@@ -69,22 +75,30 @@ const fieldDefinitions: Record<LoreType, FieldDefinition[]> = {
     { key: 'goal', label: 'Goal', placeholder: 'What is the quest or story trying to resolve?' },
     { key: 'stakes', label: 'Stakes', placeholder: 'What changes if it succeeds or fails?' },
   ],
+  QUEST: [
+    { key: 'goal', label: 'Goal', placeholder: 'What is this quest trying to resolve?' },
+    { key: 'stakes', label: 'Stakes', placeholder: 'What changes if it succeeds or fails?' },
+  ],
   RULE: [
     { key: 'scope', label: 'Scope', placeholder: 'Where this rule applies.' },
     { key: 'limit', label: 'Limit', placeholder: 'What this rule prevents or permits.' },
   ],
+  STORY: [
+    { key: 'arc', label: 'Arc', placeholder: 'What story arc does this belong to?' },
+    { key: 'focus', label: 'Focus', placeholder: 'Which lore thread does it advance?' },
+  ],
 };
 
-function listToLines(items: string[]) {
-  return items.join('\n');
-}
-
-function linesToList(value: string) {
-  return value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
+const relationshipTypes = [
+  { label: 'Allied with', value: 'allied_with' },
+  { label: 'Enemy of', value: 'enemy_of' },
+  { label: 'Member of', value: 'member_of' },
+  { label: 'Rules', value: 'rules' },
+  { label: 'Located in', value: 'located_in' },
+  { label: 'Involved in', value: 'involved_in' },
+  { label: 'Created by', value: 'created_by' },
+  { label: 'Related to', value: 'related_to' },
+];
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -105,15 +119,17 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
   const [error, setError] = useState<string | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(fields);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isLoadingTargets, setIsLoadingTargets] = useState(false);
+  const [isLinking, setIsLinking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [entityType, setEntityType] = useState(
     () => getLoreTypeOptionFromApiType(entry?.loreType ?? initialType, entry?.content).type,
   );
-  const [relationships, setRelationships] = useState(() =>
-    listToLines(getEntryRelationships(entry ?? { content: null })),
-  );
-  const [status, setStatus] = useState(entry?.status ?? 'DRAFT');
+  const [relationshipError, setRelationshipError] = useState<string | null>(null);
+  const [relationType, setRelationType] = useState(relationshipTypes[0]!.value);
   const [summary, setSummary] = useState(() => getEntrySummary(entry ?? { content: null }));
+  const [targetEntries, setTargetEntries] = useState<LoreEntry[]>([]);
+  const [targetId, setTargetId] = useState('');
   const [tags, setTags] = useState(() => getEntryTags(entry ?? { content: null }).join(', '));
   const [title, setTitle] = useState(entry?.title ?? '');
 
@@ -137,6 +153,103 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     }));
   }
 
+  useEffect(() => {
+    if (!entry) {
+      return;
+    }
+
+    let isActive = true;
+
+    async function loadTargets(currentEntry: LoreEntry) {
+      setIsLoadingTargets(true);
+      setRelationshipError(null);
+
+      try {
+        const response = await listLoreEntries(worldId);
+        const availableTargets = response.entries.filter(
+          (candidate) => candidate.id !== currentEntry.id,
+        );
+
+        if (isActive) {
+          setTargetEntries(availableTargets);
+          setTargetId(availableTargets[0]?.id ?? '');
+        }
+      } catch (nextError) {
+        if (isActive) {
+          setRelationshipError(getErrorMessage(nextError));
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingTargets(false);
+        }
+      }
+    }
+
+    loadTargets(entry);
+
+    return () => {
+      isActive = false;
+    };
+  }, [entry, worldId]);
+
+  async function handleAddRelationship() {
+    if (!entry || !targetId) {
+      return;
+    }
+
+    const accessToken = getStoredAccessToken();
+
+    if (!accessToken) {
+      setRelationshipError('Please sign in before linking lore.');
+      return;
+    }
+
+    setRelationshipError(null);
+    setIsLinking(true);
+
+    try {
+      await createLoreRelationship(
+        worldId,
+        entry.id,
+        {
+          relationType,
+          targetId,
+        },
+        accessToken,
+      );
+      router.refresh();
+    } catch (nextError) {
+      setRelationshipError(getErrorMessage(nextError));
+    } finally {
+      setIsLinking(false);
+    }
+  }
+
+  async function handleDeleteRelationship(relationshipId: string) {
+    if (!entry) {
+      return;
+    }
+
+    const accessToken = getStoredAccessToken();
+
+    if (!accessToken) {
+      setRelationshipError('Please sign in before unlinking lore.');
+      return;
+    }
+
+    setRelationshipError(null);
+    setIsLinking(true);
+
+    try {
+      await deleteLoreRelationship(worldId, entry.id, relationshipId, accessToken);
+      router.refresh();
+    } catch (nextError) {
+      setRelationshipError(getErrorMessage(nextError));
+    } finally {
+      setIsLinking(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -157,7 +270,6 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
           fields: Object.fromEntries(
             Object.entries(fieldValues).filter(([, value]) => value.trim().length > 0),
           ),
-          relationships: linesToList(relationships),
           summary: summary.trim(),
           entityType,
           tags: tags
@@ -166,7 +278,6 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
             .filter(Boolean),
         },
         loreType,
-        status,
         title: title.trim(),
       };
 
@@ -280,15 +391,6 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
                   value={tags}
                 />
               </label>
-              <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-                Connected lore
-                <Textarea
-                  onChange={(event) => setRelationships(event.target.value)}
-                  placeholder="One related entry or relationship per line"
-                  rows={4}
-                  value={relationships}
-                />
-              </label>
             </div>
           </CardContent>
         </Card>
@@ -299,22 +401,98 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
             <CardDescription>Keep drafts separate from published canon.</CardDescription>
           </CardHeader>
           <CardContent>
-            <label className="grid gap-2 text-sm font-semibold">
-              Workflow state
+            <p className="text-sm leading-6 text-muted-foreground">
+              {entry?.status ?? 'DRAFT'} entries stay draft-only here; canon publication goes
+              through proposals and voting.
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+
+      {entry ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Relationship graph</CardTitle>
+            <CardDescription>Link this entry to another lore entity.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {relationshipError ? (
+              <Alert className="mb-4" variant="warning">
+                <AlertTitle>Relationship was not saved</AlertTitle>
+                <AlertDescription>{relationshipError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto]">
               <Select
-                onChange={(event) => setStatus(event.target.value as typeof status)}
-                value={status}
+                aria-label="Relationship type"
+                onChange={(event) => setRelationType(event.target.value)}
+                value={relationType}
               >
-                {statusOptions.map((option) => (
+                {relationshipTypes.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </Select>
-            </label>
+              <Select
+                aria-label="Target lore entry"
+                disabled={isLoadingTargets || !targetEntries.length}
+                onChange={(event) => setTargetId(event.target.value)}
+                value={targetId}
+              >
+                {targetEntries.length ? (
+                  targetEntries.map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.title}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No published targets yet</option>
+                )}
+              </Select>
+              <Button
+                disabled={!targetId || isLinking}
+                isLoading={isLinking}
+                onClick={handleAddRelationship}
+                type="button"
+                variant="secondary"
+              >
+                Link
+              </Button>
+            </div>
+
+            {entry.outgoingRelations?.length ? (
+              <ul className="mt-5 space-y-3">
+                {entry.outgoingRelations.map((relationship) => (
+                  <li
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-panel border border-border p-3 text-sm"
+                    key={relationship.id}
+                  >
+                    <span>
+                      <span className="font-semibold">
+                        {relationship.relationType.replaceAll('_', ' ')}
+                      </span>{' '}
+                      {relationship.target?.title}
+                    </span>
+                    <Button
+                      disabled={isLinking}
+                      onClick={() => handleDeleteRelationship(relationship.id)}
+                      type="button"
+                      variant="outline"
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                No outgoing relationships yet.
+              </p>
+            )}
           </CardContent>
         </Card>
-      </section>
+      ) : null}
 
       <Card>
         <CardContent>

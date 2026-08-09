@@ -119,13 +119,3 @@ export function getEntryFields(entry: Pick<LoreEntry, 'content'>) {
     Object.entries(entry.content.fields).filter(([, value]) => typeof value === 'string'),
   ) as Record<string, string>;
 }
-
-export function getEntryRelationships(entry: Pick<LoreEntry, 'content'>) {
-  if (!isLoreEntryContent(entry.content) || !Array.isArray(entry.content.relationships)) {
-    return [];
-  }
-
-  return entry.content.relationships.filter(
-    (relationship): relationship is string => typeof relationship === 'string',
-  );
-}
