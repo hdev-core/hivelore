@@ -100,9 +100,15 @@ function buildContributionListPath(worldId: string, query: ContributionsQuery = 
   return `${contributionPath(worldId)}${queryString ? `?${queryString}` : ''}`;
 }
 
-export function listContributions(worldId: string, query: ContributionsQuery, accessToken: string) {
+export function listContributions(
+  worldId: string,
+  query: ContributionsQuery,
+  accessToken: string,
+  options: { signal?: AbortSignal } = {},
+) {
   return apiClient.get<ContributionsListResponse>(buildContributionListPath(worldId, query), {
     headers: authHeaders(accessToken),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 }
 

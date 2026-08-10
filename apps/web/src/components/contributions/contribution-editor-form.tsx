@@ -81,9 +81,11 @@ export function ContributionEditorForm({
   const [draft, setDraft] = useState<Contribution | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [kind, setKind] = useState<ContributionKind>(initialKind);
-  const [permissionStatus, setPermissionStatus] = useState<'checking' | 'allowed' | 'denied'>(
-    'checking',
-  );
+  const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
+  const [permissionRetryKey, setPermissionRetryKey] = useState(0);
+  const [permissionStatus, setPermissionStatus] = useState<
+    'checking' | 'allowed' | 'denied' | 'error'
+  >('checking');
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [summary, setSummary] = useState('');
@@ -103,6 +105,7 @@ export function ContributionEditorForm({
 
     if (!accessToken) {
       setPermissionStatus('denied');
+      setPermissionMessage('Please sign in before drafting contributions in this world.');
       return;
     }
 
@@ -110,11 +113,15 @@ export function ContributionEditorForm({
 
     setPermissionStatus('checking');
     setError(null);
+    setPermissionMessage(null);
 
-    listContributions(worldId, { page: 1, pageSize: 1 }, accessToken)
+    listContributions(worldId, { page: 1, pageSize: 1 }, accessToken, {
+      signal: controller.signal,
+    })
       .then(() => {
         if (!controller.signal.aborted) {
           setPermissionStatus('allowed');
+          setPermissionMessage(null);
         }
       })
       .catch((nextError: unknown) => {
@@ -122,23 +129,26 @@ export function ContributionEditorForm({
           return;
         }
 
-        setPermissionStatus('denied');
-        setError(
-          nextError instanceof ApiError && nextError.status === 403
-            ? 'You do not have permission to draft contributions in this world.'
-            : getErrorMessage(nextError),
-        );
+        if (nextError instanceof ApiError && nextError.status === 403) {
+          setPermissionStatus('denied');
+          setPermissionMessage('You do not have permission to draft contributions in this world.');
+          return;
+        }
+
+        setPermissionStatus('error');
+        setPermissionMessage(getErrorMessage(nextError));
       });
 
     return () => {
       controller.abort();
     };
-  }, [accessToken, isSessionLoading, worldId]);
+  }, [accessToken, isSessionLoading, permissionRetryKey, worldId]);
 
   const contentBytes = getStructuredDocumentBytes(content);
   const isContentTooLarge = contentBytes > STRUCTURED_DOCUMENT_MAX_BYTES;
   const contentKilobytes = Math.ceil(contentBytes / 1024);
   const contentLimitKilobytes = STRUCTURED_DOCUMENT_MAX_BYTES / 1024;
+  const isFormLocked = draft?.status === 'SUBMITTED' || isSaving || isSubmitting;
 
   const canSave = useMemo(
     () =>
@@ -270,16 +280,39 @@ export function ContributionEditorForm({
         <Alert variant="warning">
           <AlertTitle>Contribution type not supported yet</AlertTitle>
           <AlertDescription>
-            The contribution API currently supports lore updates and stories. This draft will be
+            The contribution API currently supports lore updates and stories. The requested{' '}
+            <strong>{unsupportedType}</strong> category is not supported yet, so this draft will be
             saved as a lore update until typed contribution categories are added.
           </AlertDescription>
         </Alert>
       ) : null}
 
-      {permissionStatus === 'denied' ? (
+      {permissionStatus === 'denied' || permissionStatus === 'error' ? (
         <Card>
           <CardContent>
+            <Alert variant={permissionStatus === 'denied' ? 'danger' : 'warning'}>
+              <AlertTitle>
+                {permissionStatus === 'denied'
+                  ? 'Contribution access unavailable'
+                  : 'Could not check contribution access'}
+              </AlertTitle>
+              <AlertDescription>
+                {permissionMessage ??
+                  (permissionStatus === 'denied'
+                    ? 'You do not have permission to draft contributions in this world.'
+                    : 'Try checking contribution access again.')}
+              </AlertDescription>
+            </Alert>
             <div className="flex flex-wrap gap-3">
+              {permissionStatus === 'error' ? (
+                <Button
+                  onClick={() => setPermissionRetryKey((currentKey) => currentKey + 1)}
+                  type="button"
+                  variant="outline"
+                >
+                  Retry
+                </Button>
+              ) : null}
               <Link
                 className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 href={`/worlds/${worldId}`}
@@ -315,7 +348,7 @@ export function ContributionEditorForm({
                   <label className="grid gap-2 text-sm font-semibold md:col-span-2">
                     Title
                     <Input
-                      disabled={draft?.status === 'SUBMITTED'}
+                      disabled={isFormLocked}
                       maxLength={200}
                       onChange={(event) => setTitle(event.target.value)}
                       placeholder="A treaty breaks beneath the old gate"
@@ -326,7 +359,7 @@ export function ContributionEditorForm({
                   <label className="grid gap-2 text-sm font-semibold">
                     Contribution type
                     <Select
-                      disabled={draft?.status === 'SUBMITTED'}
+                      disabled={isFormLocked}
                       onChange={(event) => setKind(event.target.value as ContributionKind)}
                       value={kind}
                     >
@@ -337,7 +370,7 @@ export function ContributionEditorForm({
                   <label className="grid gap-2 text-sm font-semibold">
                     Target lore entry ID
                     <Input
-                      disabled={draft?.status === 'SUBMITTED'}
+                      disabled={isFormLocked}
                       onChange={(event) => setTargetId(event.target.value)}
                       placeholder="Optional existing entry ID"
                       value={targetId}
@@ -346,7 +379,7 @@ export function ContributionEditorForm({
                   <label className="grid gap-2 text-sm font-semibold md:col-span-2">
                     Summary
                     <Textarea
-                      disabled={draft?.status === 'SUBMITTED'}
+                      disabled={isFormLocked}
                       maxLength={1000}
                       onChange={(event) => setSummary(event.target.value)}
                       placeholder="What should reviewers understand before voting?"
@@ -356,7 +389,7 @@ export function ContributionEditorForm({
                   </label>
                   <div className="md:col-span-2">
                     <RichTextEditor
-                      disabled={draft?.status === 'SUBMITTED'}
+                      disabled={isFormLocked}
                       label="Contribution body"
                       onJsonChange={setContent}
                       placeholder="Write the contribution that reviewers will vote on..."
