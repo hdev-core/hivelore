@@ -179,6 +179,83 @@ describe('Hive broadcast reliability', () => {
     assert.equal(result.transactionId, 'tx-1');
   });
 
+  test('confirmation read-back rotates nodes after transient provider failures', async () => {
+    const readNodes: string[] = [];
+    const broadcaster = new HiveReliableBroadcaster(
+      network,
+      {
+        async broadcast() {},
+        async getHeadBlock(nodeUrl) {
+          readNodes.push(nodeUrl ?? 'none');
+
+          if (readNodes.length === 1) {
+            throw Object.assign(new Error('HTTP 503'), { status: 503 });
+          }
+
+          return 101;
+        },
+        async searchBlocks() {
+          return [row()];
+        },
+      },
+      {
+        confirmationPollIntervalMs: 1,
+        confirmationTimeoutMs: 10,
+        maxConsecutiveNodeFailures: 1,
+      },
+      fakeClock(),
+    );
+
+    const result = await broadcaster.confirmTransaction({
+      expectedOperation: operation,
+      expectedSigner: 'mira-vale.dev',
+      transactionId: 'tx-1',
+    });
+
+    assert.deepEqual(readNodes, ['https://node-a.test', 'https://node-b.test']);
+    assert.equal(result.transactionId, 'tx-1');
+  });
+
+  test('confirmation can read back through a different healthy node than broadcast', async () => {
+    const broadcastNodes: string[] = [];
+    const readNodes: string[] = [];
+    const broadcaster = new HiveReliableBroadcaster(
+      network,
+      {
+        async broadcast(nodeUrl) {
+          broadcastNodes.push(nodeUrl);
+        },
+        async getHeadBlock(nodeUrl) {
+          readNodes.push(nodeUrl ?? 'none');
+
+          if (readNodes.length === 1) {
+            throw Object.assign(new Error('HTTP 503'), { status: 503 });
+          }
+
+          return 101;
+        },
+        async searchBlocks() {
+          return [row()];
+        },
+      },
+      {
+        confirmationPollIntervalMs: 1,
+        confirmationTimeoutMs: 10,
+      },
+      fakeClock(),
+    );
+
+    await broadcaster.broadcastSignedTransaction({
+      expectedOperation: operation,
+      expectedSigner: 'mira-vale.dev',
+      transaction,
+      transactionId: 'tx-1',
+    });
+
+    assert.deepEqual(broadcastNodes, ['https://node-a.test']);
+    assert.deepEqual(readNodes, ['https://node-a.test', 'https://node-b.test']);
+  });
+
   test('rejects a confirmed transaction id with mismatched operation content', () => {
     const mismatched = buildHiveLoreCustomJsonOperation({
       action: 'canon_approval',

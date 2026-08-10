@@ -174,6 +174,7 @@ export class HiveNodePool {
 export class HiveReliableBroadcaster {
   private readonly retry: HiveRetryConfig;
   private readonly pool: HiveNodePool;
+  private readonly confirmationPool: HiveNodePool;
 
   constructor(
     private readonly network: HiveNetworkConfig,
@@ -187,6 +188,7 @@ export class HiveReliableBroadcaster {
   ) {
     this.retry = { ...DEFAULT_HIVE_RETRY_CONFIG, ...retry };
     this.pool = new HiveNodePool(network.rpcNodes, this.retry, () => this.clock.now());
+    this.confirmationPool = new HiveNodePool(network.rpcNodes, this.retry, () => this.clock.now());
   }
 
   async broadcastSignedTransaction(input: {
@@ -289,6 +291,7 @@ export class HiveReliableBroadcaster {
     const operation = await pollForConfirmedOperation({
       confirmationTimeoutMs: this.retry.confirmationTimeoutMs,
       clock: this.clock,
+      nodePool: this.confirmationPool,
       input,
       network: this.network,
       pollIntervalMs: this.retry.confirmationPollIntervalMs,
@@ -347,6 +350,7 @@ export class HiveReliableBroadcaster {
     const operation = await pollForConfirmedOperation({
       confirmationTimeoutMs: this.retry.confirmationTimeoutMs,
       clock: this.clock,
+      nodePool: this.confirmationPool,
       input,
       network: this.network,
       pollIntervalMs: this.retry.confirmationPollIntervalMs,
@@ -438,6 +442,7 @@ export async function pollForConfirmedOperation(input: {
   input: ConfirmOperationInput;
   transport: HiveBroadcastTransport;
   network: HiveNetworkConfig;
+  nodePool?: HiveNodePool | undefined;
   confirmationTimeoutMs: number;
   pollIntervalMs: number;
   clock: {
@@ -451,18 +456,37 @@ export async function pollForConfirmedOperation(input: {
   while (input.clock.now() - startedAt <= input.confirmationTimeoutMs) {
     throwIfAborted(input.input.signal);
 
-    const head = fromBlock
-      ? fromBlock
-      : await input.transport.getHeadBlock(undefined, input.input.signal);
-    const operations = await input.transport.searchBlocks({
-      fromBlock: fromBlock ?? Math.max(1, head - 1_200),
-      toBlock: fromBlock ?? head,
-      ...(input.input.signal ? { signal: input.input.signal } : {}),
-    });
-    const confirmed = findAndVerifyOperation(operations, input.input);
+    const nodeUrl = input.nodePool?.current();
 
-    if (confirmed) {
-      return confirmed;
+    try {
+      const head = fromBlock
+        ? fromBlock
+        : await input.transport.getHeadBlock(nodeUrl, input.input.signal);
+      const operations = await input.transport.searchBlocks({
+        fromBlock: fromBlock ?? Math.max(1, head - 1_200),
+        ...(nodeUrl ? { nodeUrl } : {}),
+        toBlock: fromBlock ?? head,
+        ...(input.input.signal ? { signal: input.input.signal } : {}),
+      });
+      const confirmed = findAndVerifyOperation(operations, input.input);
+
+      if (nodeUrl) {
+        input.nodePool?.reportSuccess(nodeUrl);
+      }
+
+      if (confirmed) {
+        return confirmed;
+      }
+    } catch (error) {
+      const classified = classifyHiveBroadcastError(error);
+
+      if (classified.failureClass === 'permanent') {
+        throw classified;
+      }
+
+      if (nodeUrl) {
+        input.nodePool?.reportTransientFailure(nodeUrl);
+      }
     }
 
     fromBlock = undefined;
