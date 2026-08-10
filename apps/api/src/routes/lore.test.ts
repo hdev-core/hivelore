@@ -189,7 +189,8 @@ function createDatabase() {
   }
 
   const database = {
-    async $transaction<T>(callback: (transaction: unknown) => Promise<T>) {
+    async $transaction<T>(callback: (transaction: unknown) => Promise<T>, options?: unknown) {
+      void options;
       return callback(database);
     },
     loreEntry: {
@@ -245,6 +246,12 @@ function createDatabase() {
                     relationship[nestedKey as keyof StoredLoreRelationship] === nestedValue,
                 ),
               );
+            }
+
+            if (key === 'source' && value && typeof value === 'object' && 'authorId' in value) {
+              const source = loreEntries.find((entry) => entry.id === relationship.sourceId);
+
+              return source?.authorId === (value as { authorId: string }).authorId;
             }
 
             return relationship[key as keyof StoredLoreRelationship] === value;
@@ -781,6 +788,44 @@ describe('lore routes', () => {
     await app.close();
   });
 
+  test('relationship creation checks source permission before revealing status', async () => {
+    const state = createDatabase();
+    state.memberships.find((membership) => membership.userId === otherUser.id)!.role =
+      WorldRole.CONTRIBUTOR;
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'other-canon-source',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Other Canon Source',
+      }),
+    );
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'canon-target',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Canon Target',
+      }),
+    );
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(otherUser),
+      method: 'POST',
+      payload: {
+        relationType: 'allied_with',
+        targetId: 'canon-target',
+      },
+      url: '/worlds/world-1/lore/other-canon-source/relationships',
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.json().error, 'Insufficient world permissions.');
+    assert.equal(state.loreRelationships.length, 0);
+    await app.close();
+  });
+
   test('relationship creation does not reveal unreadable draft targets', async () => {
     const state = createDatabase();
     state.loreEntries.push(createLoreRecord({ id: 'attacker-draft', title: 'Attacker Draft' }));
@@ -810,7 +855,7 @@ describe('lore routes', () => {
     await app.close();
   });
 
-  test('relationship cap counts incoming edges before creating new links', async () => {
+  test('relationship cap limits incoming edges per source author', async () => {
     const state = createDatabase();
     state.loreEntries.push(createLoreRecord({ id: 'draft-source', title: 'Draft Source' }));
     state.loreEntries.push(
@@ -822,7 +867,7 @@ describe('lore routes', () => {
       }),
     );
 
-    for (let index = 0; index < 100; index += 1) {
+    for (let index = 0; index < 10; index += 1) {
       const sourceId = `existing-source-${index}`;
       state.loreEntries.push(createLoreRecord({ id: sourceId, title: `Existing Source ${index}` }));
       state.loreRelationships.push({
@@ -850,8 +895,126 @@ describe('lore routes', () => {
     });
 
     assert.equal(response.statusCode, 409);
-    assert.equal(response.json().error, 'A lore entry has reached the relationship limit.');
-    assert.equal(state.loreRelationships.length, 100);
+    assert.equal(
+      response.json().error,
+      'This author has reached the inbound relationship limit for that entry.',
+    );
+    assert.equal(state.loreRelationships.length, 10);
+    await app.close();
+  });
+
+  test('relationship target total does not let one author freeze another author out', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(createLoreRecord({ id: 'fresh-source', title: 'Fresh Source' }));
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'popular-target',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Popular Target',
+      }),
+    );
+
+    for (let index = 0; index < 100; index += 1) {
+      const sourceId = `other-source-${index}`;
+      state.loreEntries.push(
+        createLoreRecord({
+          authorId: otherUser.id,
+          id: sourceId,
+          title: `Other Source ${index}`,
+        }),
+      );
+      state.loreRelationships.push({
+        createdAt: now(),
+        id: `existing-relationship-${index}`,
+        metadata: null,
+        relationType: 'related_to',
+        sourceId,
+        targetId: 'popular-target',
+        updatedAt: now(),
+        worldId: 'world-1',
+      });
+    }
+
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: 'allied_with',
+        targetId: 'popular-target',
+      },
+      url: '/worlds/world-1/lore/fresh-source/relationships',
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(state.loreRelationships.length, 101);
+    await app.close();
+  });
+
+  test('relationship creation retries driver-adapter transaction conflicts', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(createLoreRecord({ id: 'source-1', title: 'Source' }));
+    state.loreEntries.push(createLoreRecord({ id: 'target-1', title: 'Target' }));
+    const originalTransaction = state.database.$transaction;
+    let attempts = 0;
+
+    state.database.$transaction = async <T>(
+      callback: (transaction: unknown) => Promise<T>,
+      options?: unknown,
+    ) => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        throw Object.assign(new Error('TransactionWriteConflict'), {
+          cause: {
+            kind: 'TransactionWriteConflict',
+          },
+          name: 'DriverAdapterError',
+        });
+      }
+
+      return originalTransaction(callback, options);
+    };
+
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: 'member_of',
+        targetId: 'target-1',
+      },
+      url: '/worlds/world-1/lore/source-1/relationships',
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(attempts, 2);
+    assert.equal(state.loreRelationships.length, 1);
+    await app.close();
+  });
+
+  test('relationship type accepts only supported values', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(createLoreRecord({ id: 'source-1', title: 'Source' }));
+    state.loreEntries.push(createLoreRecord({ id: 'target-1', title: 'Target' }));
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: '<img onerror=alert(1)>',
+        targetId: 'target-1',
+      },
+      url: '/worlds/world-1/lore/source-1/relationships',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().error, 'Invalid lore relationship payload.');
+    assert.equal(state.loreRelationships.length, 0);
     await app.close();
   });
 

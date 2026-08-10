@@ -19,6 +19,7 @@ const STRUCTURED_CONTENT_MAX_BYTES = 100 * 1024;
 const STRUCTURED_CONTENT_MAX_DEPTH = 32;
 const RELATIONSHIP_METADATA_MAX_BYTES = 16 * 1024;
 const MAX_RELATIONSHIPS_PER_ENTRY = 100;
+const MAX_INBOUND_RELATIONSHIPS_PER_AUTHOR_PER_ENTRY = 10;
 const RELATIONSHIP_TRANSACTION_RETRIES = 3;
 const RELATIONSHIP_TYPES = [
   'allied_with',
@@ -464,7 +465,33 @@ function isPrismaUniqueConflict(error: unknown) {
 }
 
 function isPrismaTransactionConflict(error: unknown) {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2034';
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const record = error as {
+    cause?: { code?: unknown; kind?: unknown };
+    code?: unknown;
+  };
+
+  return (
+    record.code === 'P2034' ||
+    record.code === '40001' ||
+    record.code === '40P01' ||
+    record.cause?.kind === 'TransactionWriteConflict' ||
+    record.cause?.code === '40001' ||
+    record.cause?.code === '40P01'
+  );
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function relationshipRetryDelay(attempt: number) {
+  return 25 * attempt + Math.floor(Math.random() * 25);
 }
 
 async function createLoreAuditLog(
@@ -910,15 +937,6 @@ export async function registerLoreRoutes(
         });
       }
 
-      if (
-        source.status !== LoreStatus.DRAFT ||
-        (target.status !== LoreStatus.DRAFT && target.status !== LoreStatus.PUBLISHED_CANON)
-      ) {
-        return reply.code(409).send({
-          error: 'Draft lore can only link to draft or published canon entries here.',
-        });
-      }
-
       const permitted = await canMutateDraft(
         request,
         database,
@@ -932,30 +950,45 @@ export async function registerLoreRoutes(
         });
       }
 
+      if (
+        source.status !== LoreStatus.DRAFT ||
+        (target.status !== LoreStatus.DRAFT && target.status !== LoreStatus.PUBLISHED_CANON)
+      ) {
+        return reply.code(409).send({
+          error: 'Draft lore can only link to draft or published canon entries here.',
+        });
+      }
+
       for (let attempt = 1; attempt <= RELATIONSHIP_TRANSACTION_RETRIES; attempt += 1) {
         try {
           const relationship = await database.$transaction(
             async (transaction) => {
-              const [sourceRelationshipCount, targetRelationshipCount] = await Promise.all([
-                transaction.loreRelationship.count({
-                  where: {
-                    OR: [{ sourceId: source.id }, { targetId: source.id }],
-                    worldId: params.data.worldId,
-                  },
-                }),
-                transaction.loreRelationship.count({
-                  where: {
-                    OR: [{ sourceId: target.id }, { targetId: target.id }],
-                    worldId: params.data.worldId,
-                  },
-                }),
-              ]);
+              const sourceRelationshipCount = await transaction.loreRelationship.count({
+                where: {
+                  OR: [{ sourceId: source.id }, { targetId: source.id }],
+                  worldId: params.data.worldId,
+                },
+              });
 
-              if (
-                sourceRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY ||
-                targetRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY
-              ) {
+              if (sourceRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY) {
                 throw new LoreRouteError(409, 'A lore entry has reached the relationship limit.');
+              }
+
+              const targetInboundByAuthorCount = await transaction.loreRelationship.count({
+                where: {
+                  source: {
+                    authorId: source.authorId,
+                  },
+                  targetId: target.id,
+                  worldId: params.data.worldId,
+                },
+              });
+
+              if (targetInboundByAuthorCount >= MAX_INBOUND_RELATIONSHIPS_PER_AUTHOR_PER_ENTRY) {
+                throw new LoreRouteError(
+                  409,
+                  'This author has reached the inbound relationship limit for that entry.',
+                );
               }
 
               const created = await transaction.loreRelationship.create({
@@ -1010,6 +1043,7 @@ export async function registerLoreRoutes(
           });
         } catch (error) {
           if (isPrismaTransactionConflict(error) && attempt < RELATIONSHIP_TRANSACTION_RETRIES) {
+            await delay(relationshipRetryDelay(attempt));
             continue;
           }
 

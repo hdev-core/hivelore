@@ -242,23 +242,17 @@ export function LoreEntryDetailClient({
   const [isMissing, setIsMissing] = useState(false);
 
   useEffect(() => {
-    if (initialEntry) {
-      setEntry(initialEntry);
-      setError(null);
-      setIsLoading(false);
-      setIsMissing(false);
-      return;
-    }
+    const accessToken = getStoredAccessToken();
+    const shouldRefreshWithToken = Boolean(initialEntry && accessToken);
 
     let isActive = true;
 
     async function loadEntry() {
       setError(null);
-      setIsLoading(true);
+      setIsLoading(!initialEntry);
       setIsMissing(false);
 
       try {
-        const accessToken = getStoredAccessToken();
         const response = await getLoreEntry(worldId, entryId, accessToken);
 
         if (isActive) {
@@ -281,6 +275,19 @@ export function LoreEntryDetailClient({
           setIsLoading(false);
         }
       }
+    }
+
+    if (initialEntry) {
+      setEntry(initialEntry);
+      setError(null);
+      setIsLoading(false);
+      setIsMissing(false);
+    }
+
+    if (initialEntry && !shouldRefreshWithToken) {
+      return () => {
+        isActive = false;
+      };
     }
 
     loadEntry();
