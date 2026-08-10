@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import { RichTextEditor, type StructuredEditorContent } from '@/components/editor/rich-text-editor';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -61,6 +61,14 @@ function getPreflightErrorMessage(error: unknown) {
   return 'Contribution access could not be checked.';
 }
 
+function getRefreshFailureMessage(error: unknown) {
+  if (error instanceof ApiError && error.status === 401) {
+    return 'Your session expired. Sign in again before saving this contribution.';
+  }
+
+  return 'Could not refresh your session. Your draft is still on this page; try again before leaving.';
+}
+
 function hasMeaningfulText(value: unknown): boolean {
   if (Array.isArray(value)) {
     return value.some(hasMeaningfulText);
@@ -89,6 +97,10 @@ export function ContributionEditorForm({
 }: ContributionEditorFormProps) {
   const router = useRouter();
   const { accessToken, isSessionLoading, refreshSession, user } = useAuthSession();
+  const accessTokenRef = useRef<string | null>(accessToken);
+  const hasAllowedAccessRef = useRef(false);
+  const lastPreflightKeyRef = useRef<string | null>(null);
+  const operationInFlightRef = useRef(false);
   const [content, setContent] = useState<StructuredEditorContent>(emptyDocument);
   const [draft, setDraft] = useState<Contribution | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,20 +115,30 @@ export function ContributionEditorForm({
   const [summary, setSummary] = useState('');
   const [targetId, setTargetId] = useState(targetLoreEntryId ?? '');
   const [title, setTitle] = useState('');
+  accessTokenRef.current = accessToken;
 
   useEffect(() => {
     if (isSessionLoading) {
       return;
     }
 
-    if (!accessToken) {
+    const preflightKey = `${worldId}:${permissionRetryKey}`;
+
+    if (hasAllowedAccessRef.current && lastPreflightKeyRef.current === preflightKey) {
+      return;
+    }
+
+    const initialAccessToken = accessTokenRef.current;
+
+    if (!initialAccessToken) {
       setPermissionStatus('reauth');
       setPermissionMessage('Please sign in before drafting contributions in this world.');
       return;
     }
 
+    const preflightAccessToken = initialAccessToken;
     const controller = new AbortController();
-    const initialAccessToken = accessToken;
+    lastPreflightKeyRef.current = preflightKey;
 
     setPermissionStatus((currentStatus) =>
       currentStatus === 'allowed' ? currentStatus : 'checking',
@@ -125,7 +147,7 @@ export function ContributionEditorForm({
     setPermissionMessage(null);
 
     async function checkAccess() {
-      let token = initialAccessToken;
+      let token = preflightAccessToken;
 
       try {
         await listContributions(worldId, { page: 1, pageSize: 1 }, token, {
@@ -133,6 +155,7 @@ export function ContributionEditorForm({
         });
 
         if (!controller.signal.aborted) {
+          hasAllowedAccessRef.current = true;
           setPermissionStatus('allowed');
           setPermissionMessage(null);
         }
@@ -151,15 +174,18 @@ export function ContributionEditorForm({
             });
 
             if (!controller.signal.aborted) {
+              hasAllowedAccessRef.current = true;
               setPermissionStatus('allowed');
               setPermissionMessage(null);
             }
-          } catch {
+          } catch (refreshError) {
             if (!controller.signal.aborted) {
-              setPermissionStatus('reauth');
-              setPermissionMessage(
-                'Your session expired. Sign in again before drafting contributions.',
+              setPermissionStatus(
+                refreshError instanceof ApiError && refreshError.status === 401
+                  ? 'reauth'
+                  : 'error',
               );
+              setPermissionMessage(getRefreshFailureMessage(refreshError));
             }
           }
 
@@ -188,7 +214,26 @@ export function ContributionEditorForm({
     return () => {
       controller.abort();
     };
-  }, [accessToken, isSessionLoading, permissionRetryKey, refreshSession, worldId]);
+  }, [isSessionLoading, permissionRetryKey, refreshSession, worldId]);
+
+  useEffect(() => {
+    const hasUnsavedWork = Boolean(title.trim() || summary.trim() || hasMeaningfulText(content));
+
+    if (!hasUnsavedWork || draft?.status === 'SUBMITTED') {
+      return;
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [content, draft?.status, summary, title]);
 
   const contentBytes = getStructuredDocumentBytes(content);
   const isContentTooLarge = contentBytes > STRUCTURED_DOCUMENT_MAX_BYTES;
@@ -230,37 +275,61 @@ export function ContributionEditorForm({
   }
 
   async function runWithAuthRetry<T>(operation: (token: string) => Promise<T>) {
-    if (!accessToken) {
+    const currentAccessToken = accessTokenRef.current;
+
+    if (!currentAccessToken) {
       throw new Error('Please sign in before saving a contribution.');
     }
 
     try {
-      return await operation(accessToken);
+      return await operation(currentAccessToken);
     } catch (nextError) {
       if (!(nextError instanceof ApiError) || nextError.status !== 401) {
         throw nextError;
       }
 
-      const session = await refreshSession();
-      return operation(session.accessToken);
+      try {
+        const session = await refreshSession();
+        accessTokenRef.current = session.accessToken;
+        return operation(session.accessToken);
+      } catch (refreshError) {
+        throw new Error(getRefreshFailureMessage(refreshError));
+      }
     }
   }
 
-  async function saveDraft() {
+  async function saveDraft(options: { internal?: boolean } = {}) {
+    if (operationInFlightRef.current && !options.internal) {
+      return null;
+    }
+
+    if (!options.internal) {
+      operationInFlightRef.current = true;
+    }
+
     setError(null);
 
-    if (!accessToken) {
+    if (!accessTokenRef.current) {
       setError('Please sign in before saving a contribution.');
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
       return null;
     }
 
     if (permissionStatus !== 'allowed') {
       setError('You do not have permission to draft contributions in this world.');
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
       return null;
     }
 
     if (isContentTooLarge) {
       setError(`Contribution body must stay under ${contentLimitKilobytes} KB.`);
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
       return null;
     }
 
@@ -281,6 +350,9 @@ export function ContributionEditorForm({
       return null;
     } finally {
       setIsSaving(false);
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
     }
   }
 
@@ -295,17 +367,23 @@ export function ContributionEditorForm({
   }
 
   async function handleSubmitForVote() {
+    if (operationInFlightRef.current) {
+      return;
+    }
+
+    operationInFlightRef.current = true;
     setError(null);
 
-    if (!accessToken) {
+    if (!accessTokenRef.current) {
       setError('Please sign in before submitting a contribution.');
+      operationInFlightRef.current = false;
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const currentDraft = await saveDraft();
+      const currentDraft = await saveDraft({ internal: true });
 
       if (!currentDraft) {
         return;
@@ -323,8 +401,11 @@ export function ContributionEditorForm({
       setError(getErrorMessage(nextError));
     } finally {
       setIsSubmitting(false);
+      operationInFlightRef.current = false;
     }
   }
+
+  const shouldShowEditor = permissionStatus === 'allowed' || hasAllowedAccessRef.current;
 
   return (
     <form className="space-y-6" onSubmit={handleSave}>
@@ -405,7 +486,7 @@ export function ContributionEditorForm({
         </Card>
       ) : null}
 
-      {permissionStatus !== 'allowed' ? null : (
+      {!shouldShowEditor ? null : (
         <>
           {draft?.status === 'SUBMITTED' ? (
             <Alert variant="success">
