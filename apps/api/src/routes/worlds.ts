@@ -11,6 +11,7 @@ import {
   getWorldHub,
   listWorlds,
   updateWorld,
+  WorldError,
   type WorldDatabase,
   type WorldSeedInput,
 } from '../lib/worlds.js';
@@ -23,40 +24,133 @@ const paramsSchema = z.object({
 });
 
 const stringListSchema = z.array(z.string().trim().min(1).max(120)).max(20);
+const WORLD_BIBLE_MAX_BYTES = 100 * 1024;
+const WORLD_BIBLE_MAX_DEPTH = 40;
 
-function isJsonValue(value: unknown): value is Prisma.InputJsonValue {
+type JsonValidationResult =
+  | {
+      ok: true;
+      value: Prisma.InputJsonValue;
+    }
+  | {
+      ok: false;
+      message: string;
+    };
+
+function validateJsonValue(value: unknown): JsonValidationResult {
   if (value === null) {
-    return true;
+    return {
+      message: 'World bible content cannot be null.',
+      ok: false,
+    };
   }
 
-  if (typeof value === 'string' || typeof value === 'boolean') {
-    return true;
-  }
+  const pending: Array<{ value: unknown; depth: number }> = [{ depth: 0, value }];
 
-  if (typeof value === 'number') {
-    return Number.isFinite(value);
-  }
+  while (pending.length > 0) {
+    const item = pending.pop()!;
 
-  if (Array.isArray(value)) {
-    return value.every(isJsonValue);
-  }
-
-  if (typeof value === 'object') {
-    const prototype = Object.getPrototypeOf(value);
-
-    if (prototype !== Object.prototype && prototype !== null) {
-      return false;
+    if (item.depth > WORLD_BIBLE_MAX_DEPTH) {
+      return {
+        message: 'World bible content exceeds the maximum nesting depth.',
+        ok: false,
+      };
     }
 
-    return Object.values(value).every(isJsonValue);
+    if (item.value === null) {
+      continue;
+    }
+
+    if (typeof item.value === 'string' || typeof item.value === 'boolean') {
+      continue;
+    }
+
+    if (typeof item.value === 'number') {
+      if (!Number.isFinite(item.value)) {
+        return {
+          message: 'World bible content must be valid JSON.',
+          ok: false,
+        };
+      }
+
+      continue;
+    }
+
+    if (Array.isArray(item.value)) {
+      for (const child of item.value) {
+        pending.push({ depth: item.depth + 1, value: child });
+      }
+
+      continue;
+    }
+
+    if (typeof item.value === 'object') {
+      const prototype = Object.getPrototypeOf(item.value);
+
+      if (prototype !== Object.prototype && prototype !== null) {
+        return {
+          message: 'World bible content must be valid JSON.',
+          ok: false,
+        };
+      }
+
+      for (const child of Object.values(item.value)) {
+        if (child === undefined) {
+          return {
+            message: 'World bible content must be valid JSON.',
+            ok: false,
+          };
+        }
+
+        pending.push({ depth: item.depth + 1, value: child });
+      }
+
+      continue;
+    }
+
+    return {
+      message: 'World bible content must be valid JSON.',
+      ok: false,
+    };
   }
 
-  return false;
+  let serialized: string;
+
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return {
+      message: 'World bible content must be valid JSON.',
+      ok: false,
+    };
+  }
+
+  if (!serialized || Buffer.byteLength(serialized, 'utf8') > WORLD_BIBLE_MAX_BYTES) {
+    return {
+      message: 'World bible content exceeds the 100 KB limit.',
+      ok: false,
+    };
+  }
+
+  return {
+    ok: true,
+    value: value as Prisma.InputJsonValue,
+  };
 }
 
-const jsonValueSchema = z.custom<Prisma.InputJsonValue>(isJsonValue, {
-  message: 'World bible content must be valid JSON.',
-});
+const jsonValueSchema = z
+  .unknown()
+  .superRefine((value, context) => {
+    const validation = validateJsonValue(value);
+
+    if (!validation.ok) {
+      context.addIssue({
+        code: 'custom',
+        message: validation.message,
+      });
+    }
+  })
+  .transform((value) => value as Prisma.InputJsonValue);
 
 const worldSeedSchema = z.object({
   firstCharacters: stringListSchema.optional(),
@@ -104,12 +198,26 @@ type RegisterWorldRoutesOptions = {
   database?: WorldDatabase & WorldMembershipLookup;
 };
 
-function authOptions() {
+function authOptions(database: WorldDatabase) {
   return {
     audience: env.AUTH_JWT_AUDIENCE,
+    database,
     issuer: env.AUTH_JWT_ISSUER,
     jwtSecret: env.AUTH_JWT_SECRET,
   };
+}
+
+function handleWorldError(
+  error: unknown,
+  reply: { code(statusCode: number): { send(body: unknown): unknown } },
+) {
+  if (error instanceof WorldError) {
+    return reply.code(error.statusCode).send({
+      error: error.message,
+    });
+  }
+
+  throw error;
 }
 
 export async function registerWorldRoutes(
@@ -121,7 +229,7 @@ export async function registerWorldRoutes(
   app.post(
     '/worlds',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const body = createWorldSchema.safeParse(request.body);
@@ -132,7 +240,7 @@ export async function registerWorldRoutes(
         });
       }
 
-      const authenticatedUser = authenticateRequest(request, authOptions());
+      const authenticatedUser = await authenticateRequest(request, authOptions(database));
 
       if (!authenticatedUser) {
         return reply.code(401).send({
@@ -140,18 +248,22 @@ export async function registerWorldRoutes(
         });
       }
 
-      const world = await createWorld(database, {
-        ...body.data,
-        bible: {
-          ...body.data.bible,
-          content: body.data.bible.content,
-        },
-        creatorId: authenticatedUser.id,
-      });
+      try {
+        const world = await createWorld(database, {
+          ...body.data,
+          bible: {
+            ...body.data.bible,
+            content: body.data.bible.content,
+          },
+          creatorId: authenticatedUser.id,
+        });
 
-      return reply.code(201).send({
-        world,
-      });
+        return reply.code(201).send({
+          world,
+        });
+      } catch (error) {
+        return handleWorldError(error, reply);
+      }
     },
   );
 
@@ -212,7 +324,7 @@ export async function registerWorldRoutes(
   app.patch(
     '/worlds/:worldId',
     {
-      preHandler: requireSession(authOptions()),
+      preHandler: requireSession(authOptions(database)),
     },
     async (request, reply) => {
       const params = paramsSchema.safeParse(request.params);
@@ -236,30 +348,35 @@ export async function registerWorldRoutes(
         return;
       }
 
-      const world = await updateWorld(database, {
-        ...(body.data.description ? { description: body.data.description } : {}),
-        ...(body.data.seed ? { seed: body.data.seed as Partial<WorldSeedInput> } : {}),
-        ...(body.data.title ? { title: body.data.title } : {}),
-        ...(body.data.bible
-          ? {
-              bible: {
-                ...body.data.bible,
-                content: body.data.bible.content,
-              },
-            }
-          : {}),
-        worldId: params.data.worldId,
-      });
-
-      if (!world) {
-        return reply.code(404).send({
-          error: 'World not found.',
+      if (!request.user) {
+        return reply.code(401).send({
+          error: 'Authentication required.',
         });
       }
 
-      return {
-        world,
-      };
+      try {
+        const world = await updateWorld(database, {
+          actorId: request.user.id,
+          ...(body.data.description ? { description: body.data.description } : {}),
+          ...(body.data.seed ? { seed: body.data.seed as Partial<WorldSeedInput> } : {}),
+          ...(body.data.title ? { title: body.data.title } : {}),
+          ...(body.data.bible
+            ? {
+                bible: {
+                  ...body.data.bible,
+                  content: body.data.bible.content,
+                },
+              }
+            : {}),
+          worldId: params.data.worldId,
+        });
+
+        return {
+          world,
+        };
+      } catch (error) {
+        return handleWorldError(error, reply);
+      }
     },
   );
 }

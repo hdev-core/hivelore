@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 
 import { verifyAccessToken } from './auth-crypto.js';
+import { isRefreshSessionActive, type SessionVerificationDatabase } from './auth-sessions.js';
 import type { AuthenticatedUser } from './world-authorization.js';
 
 export function readBearerToken(request: FastifyRequest) {
@@ -19,12 +20,14 @@ export function readBearerToken(request: FastifyRequest) {
   return token;
 }
 
-export function authenticateRequest(
+export async function authenticateRequest(
   request: FastifyRequest,
   options: {
     audience: string;
+    database: SessionVerificationDatabase;
     issuer: string;
     jwtSecret: string;
+    now?: Date;
   },
 ) {
   const token = readBearerToken(request);
@@ -38,7 +41,19 @@ export function authenticateRequest(
       audience: options.audience,
       issuer: options.issuer,
       secret: options.jwtSecret,
+      ...(options.now ? { now: options.now } : {}),
     });
+
+    const hasActiveSession = await isRefreshSessionActive(options.database, {
+      sessionId: claims.sid,
+      userId: claims.sub,
+      ...(options.now ? { now: options.now } : {}),
+    });
+
+    if (!hasActiveSession) {
+      return null;
+    }
+
     const user: AuthenticatedUser = {
       hiveUsername: claims.hiveUsername,
       id: claims.sub,
@@ -56,14 +71,15 @@ export function authenticateRequest(
 
 export function requireSession(options: {
   audience: string;
+  database: SessionVerificationDatabase;
   issuer: string;
   jwtSecret: string;
 }): preHandlerHookHandler {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = authenticateRequest(request, options);
+    const user = await authenticateRequest(request, options);
 
     if (!user) {
-      await reply.code(401).send({
+      return reply.code(401).send({
         error: 'Authentication required.',
       });
     }

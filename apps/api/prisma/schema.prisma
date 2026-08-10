@@ -50,6 +50,8 @@ enum ProposalStatus {
   VOTING
   APPROVED_FOR_PUBLICATION
   REJECTED
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
   PUBLISHED
   WITHDRAWN
 }
@@ -57,7 +59,17 @@ enum ProposalStatus {
 enum VoteChoice {
   APPROVE
   REJECT
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
   ABSTAIN
+}
+
+enum ProposalDecisionOutcome {
+  APPROVED_FOR_PUBLICATION
+  REJECTED
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
+  STALE_BASE_CONFLICT
 }
 
 enum AIReportStatus {
@@ -145,6 +157,8 @@ enum WorldAuditAction {
   CONTRIBUTION_DELETED
   CONTRIBUTION_SUBMITTED
   PROPOSAL_CREATED
+  CANON_DECISION_FINALIZED
+  WORLD_BIBLE_UPDATED
 }
 
 enum AuthProvider {
@@ -247,6 +261,16 @@ model RefreshSession {
   @@index([sessionFamilyId])
   @@index([expiresAt])
   @@index([revokedAt])
+}
+
+model AuthRateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
 }
 
 model ExternalIdentityLink {
@@ -477,13 +501,24 @@ model Proposal {
   resultingBibleVersion   WorldBibleVersion? @relation("ProposalResultingBibleVersion", fields: [resultingBibleVersionId], references: [id], onDelete: SetNull)
   submittedAt             DateTime?
   votingStartedAt         DateTime?
+  votingEndsAt            DateTime?
+  decidedAt               DateTime?
   approvedAt              DateTime?
   rejectedAt              DateTime?
   publishedAt             DateTime?
+  contentHash             String?
+  aiWarningAcknowledgedAt DateTime?
+  baseCanonVersionId      String?
+  branchParentProposalId  String?
+  branchBaseLoreEntryId   String?
+  branchLabel             String?
+  conflictMetadata        Json?
+  staleBaseAtDecision     Boolean            @default(false)
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
   contributionDraft       ContributionDraft?
   votes                   AppVote[]
+  decision                ProposalDecision?
   aiReports               AIReport[]
   moderationReports       ModerationReport[]
 
@@ -491,6 +526,9 @@ model Proposal {
   @@index([authorId])
   @@index([worldId, contributionKind])
   @@index([targetLoreEntryId])
+  @@index([votingEndsAt])
+  @@index([baseCanonVersionId])
+  @@index([branchBaseLoreEntryId])
 }
 
 model ContributionDraft {
@@ -536,6 +574,55 @@ model AppVote {
   @@unique([proposalId, voterId])
   @@index([proposalId])
   @@index([voterId])
+}
+
+model ProposalDecision {
+  id                     String                  @id @default(cuid())
+  proposalId             String                  @unique
+  proposal               Proposal                @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  outcome                ProposalDecisionOutcome
+  decidedAt              DateTime
+  rulesVersion           String
+  payloadSchemaVersion   Int
+  minimumVotes           Int
+  approvalThresholdBps   Int
+  votingWindowHours      Int
+  approveCount           Int
+  rejectCount            Int
+  needsRevisionCount     Int
+  alternateTimelineCount Int
+  totalVotes             Int
+  approvalNumerator      Int
+  approvalDenominator    Int
+  approvalPercentageBps  Int
+  aiWarningAcknowledged  Boolean                 @default(false)
+  aiWarningSummary       String?
+  baseCanonVersionId     String?
+  branchParentProposalId String?
+  branchBaseLoreEntryId  String?
+  branchLabel            String?
+  conflictMetadata       Json?
+  staleBaseAtDecision    Boolean                 @default(false)
+  contentHash            String
+  decisionPayload        Json
+  decisionPayloadHash    String                  @unique
+  customJsonId           String?
+  expectedSigner         String?
+  hiveEventId            String?                 @unique
+  hiveEvent              HiveEvent?              @relation(fields: [hiveEventId], references: [id], onDelete: SetNull)
+  transactionId          String?
+  blockNumber            BigInt?
+  operationIndex         Int?
+  blockchainTimestamp    DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([transactionId, operationIndex])
+  @@index([outcome])
+  @@index([decidedAt])
+  @@index([customJsonId])
+  @@index([baseCanonVersionId])
+  @@index([branchBaseLoreEntryId])
 }
 
 model AIReport {
@@ -624,6 +711,7 @@ model HiveEvent {
   processedAt         DateTime      @default(now())
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
+  proposalDecision    ProposalDecision?
   /// Rebuildable indexed Hive operation; the blockchain remains authoritative.
 
   @@unique([transactionId, operationIndex])

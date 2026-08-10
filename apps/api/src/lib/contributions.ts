@@ -6,6 +6,7 @@ import {
   ProposalType,
   WorldAuditAction,
 } from '../generated/prisma/enums.js';
+import { prepareSubmittedProposalVotingFields } from './canon-voting.js';
 
 const STRUCTURED_DOCUMENT_MAX_BYTES = 100 * 1024;
 
@@ -24,6 +25,7 @@ export type ContributionDatabase = Pick<
   | 'contributionDraft'
   | 'loreEntry'
   | 'proposal'
+  | 'refreshSession'
   | 'world'
   | 'worldAuditLog'
   | 'worldMembership'
@@ -652,6 +654,21 @@ export async function submitContribution(
     await assertTargetLoreEntry(transaction, input.worldId, existing.targetLoreEntryId);
 
     const submittedAt = new Date();
+    const votingFields = prepareSubmittedProposalVotingFields({
+      proposedContent: structuredContent,
+      submittedAt,
+    });
+    const currentBible = await transaction.worldBibleVersion.findFirst({
+      orderBy: {
+        versionNumber: 'desc',
+      },
+      select: {
+        id: true,
+      },
+      where: {
+        worldId: input.worldId,
+      },
+    });
     const transition = await transaction.contributionDraft.updateMany({
       data: {
         status: ContributionStatus.SUBMITTED,
@@ -691,17 +708,21 @@ export async function submitContribution(
     const proposal = await transaction.proposal.create({
       data: {
         authorId: input.authorId,
+        baseCanonVersionId: currentBible?.id ?? null,
         contributionKind: existing.kind,
+        contentHash: votingFields.contentHash,
         proposedContent: structuredContent,
         proposalType: proposalTypeForContribution(
           existing.kind,
           Boolean(existing.targetLoreEntryId),
         ),
-        status: ProposalStatus.SUBMITTED,
+        status: ProposalStatus.VOTING,
         submittedAt,
         summary: existing.summary ?? '',
         targetLoreEntryId: existing.targetLoreEntryId,
         title: existing.title,
+        votingEndsAt: votingFields.votingEndsAt,
+        votingStartedAt: votingFields.votingStartedAt,
         worldId: input.worldId,
       },
     });

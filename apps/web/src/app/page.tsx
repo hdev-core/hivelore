@@ -71,6 +71,12 @@ function signWithKeychain(username: string, message: string) {
   });
 }
 
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export default function Home() {
   const [challenge, setChallenge] = useState<AuthChallengeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +138,8 @@ export default function Home() {
 
     try {
       const nextChallenge = await createAuthChallenge(username, 'keychain');
-      const signature = await signWithKeychain(nextChallenge.hiveUsername, nextChallenge.message);
+      const signaturePayload = await sha256Hex(nextChallenge.message);
+      const signature = await signWithKeychain(nextChallenge.hiveUsername, signaturePayload);
 
       await completeLogin(nextChallenge, signature.result ?? '', signature.publicKey);
     } catch (nextError) {
