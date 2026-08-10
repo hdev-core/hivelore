@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -241,6 +242,10 @@ export function LoreEntryDetailClient({
         }
       } catch (nextError) {
         if (isActive) {
+          if (nextError instanceof ApiError && nextError.status === 404) {
+            notFound();
+          }
+
           if (!initialEntry) {
             setEntry(null);
             setError(getErrorMessage(nextError));

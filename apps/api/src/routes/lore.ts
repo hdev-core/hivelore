@@ -2,7 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { env } from '../config/env.js';
-import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
+import { Prisma } from '../generated/prisma/client.js';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import { LoreStatus, LoreType, WorldAuditAction } from '../generated/prisma/enums.js';
 import { authenticateRequest, requireSession } from '../lib/auth-middleware.js';
 import type { SessionVerificationDatabase } from '../lib/auth-sessions.js';
@@ -858,62 +859,65 @@ export async function registerLoreRoutes(
       }
 
       try {
-        const existingRelationshipCount = await database.loreRelationship.count({
-          where: {
-            sourceId: source.id,
-            worldId: params.data.worldId,
-          },
-        });
-
-        if (existingRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY) {
-          return reply.code(409).send({
-            error: 'This lore entry has reached the relationship limit.',
-          });
-        }
-
-        const relationship = await database.$transaction(async (transaction) => {
-          const created = await transaction.loreRelationship.create({
-            data: {
-              ...(body.data.metadata === undefined
-                ? {}
-                : { metadata: validateRelationshipMetadata(body.data.metadata) }),
-              relationType: body.data.relationType.trim(),
-              sourceId: source.id,
-              targetId: target.id,
-              worldId: params.data.worldId,
-            },
-            select: {
-              id: true,
-              relationType: true,
-              target: {
-                select: {
-                  id: true,
-                  loreType: true,
-                  slug: true,
-                  status: true,
-                  title: true,
-                },
+        const relationship = await database.$transaction(
+          async (transaction) => {
+            const existingRelationshipCount = await transaction.loreRelationship.count({
+              where: {
+                sourceId: source.id,
+                worldId: params.data.worldId,
               },
-            },
-          });
+            });
 
-          await transaction.worldAuditLog.create({
-            data: {
-              action: WorldAuditAction.LORE_RELATIONSHIP_CREATED,
-              actorId: request.user!.id,
-              metadata: {
-                relationType: created.relationType,
+            if (existingRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY) {
+              throw new LoreRouteError(409, 'This lore entry has reached the relationship limit.');
+            }
+
+            const created = await transaction.loreRelationship.create({
+              data: {
+                ...(body.data.metadata === undefined
+                  ? {}
+                  : { metadata: validateRelationshipMetadata(body.data.metadata) }),
+                relationType: body.data.relationType.trim(),
                 sourceId: source.id,
                 targetId: target.id,
+                worldId: params.data.worldId,
               },
-              targetId: created.id,
-              targetType: 'LORE_RELATIONSHIP',
-              worldId: params.data.worldId,
-            },
-          });
+              select: {
+                id: true,
+                relationType: true,
+                target: {
+                  select: {
+                    id: true,
+                    loreType: true,
+                    slug: true,
+                    status: true,
+                    title: true,
+                  },
+                },
+              },
+            });
 
-          return created;
-        });
+            await transaction.worldAuditLog.create({
+              data: {
+                action: WorldAuditAction.LORE_RELATIONSHIP_CREATED,
+                actorId: request.user!.id,
+                metadata: {
+                  relationType: created.relationType,
+                  sourceId: source.id,
+                  targetId: target.id,
+                },
+                targetId: created.id,
+                targetType: 'LORE_RELATIONSHIP',
+                worldId: params.data.worldId,
+              },
+            });
+
+            return created;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
 
         return reply.code(201).send({
           relationship,
@@ -1074,6 +1078,12 @@ export async function registerLoreRoutes(
         return;
       }
 
+      const includeAllNonPublicRelations = await canViewAllNonPublicLore(
+        request,
+        database,
+        params.data.worldId,
+      );
+
       try {
         const title = normalizeTitle(body.data.title);
         const content = validateLoreContent(body.data.content);
@@ -1091,6 +1101,7 @@ export async function registerLoreRoutes(
               worldId: params.data.worldId,
             },
             include: loreEntryInclude({
+              includeAllNonPublicRelations,
               viewerId: request.user!.id,
             }),
           });
@@ -1112,6 +1123,7 @@ export async function registerLoreRoutes(
 
         return reply.code(201).send({
           entry: serializeLoreEntry(entry, {
+            includeAllNonPublicRelations,
             viewerId: request.user.id,
           }),
         });
@@ -1155,9 +1167,11 @@ export async function registerLoreRoutes(
       }
 
       const existing = await database.loreEntry.findFirst({
-        include: loreEntryInclude({
-          viewerId: request.user.id,
-        }),
+        select: {
+          authorId: true,
+          id: true,
+          status: true,
+        },
         where: {
           id: params.data.entryId,
           worldId: params.data.worldId,
@@ -1189,6 +1203,12 @@ export async function registerLoreRoutes(
         });
       }
 
+      const includeAllNonPublicRelations = await canViewAllNonPublicLore(
+        request,
+        database,
+        params.data.worldId,
+      );
+
       try {
         const data: Prisma.LoreEntryUpdateInput = {};
 
@@ -1210,6 +1230,7 @@ export async function registerLoreRoutes(
           const updated = await transaction.loreEntry.update({
             data,
             include: loreEntryInclude({
+              includeAllNonPublicRelations,
               viewerId: request.user!.id,
             }),
             where: {
@@ -1233,6 +1254,7 @@ export async function registerLoreRoutes(
 
         return {
           entry: serializeLoreEntry(entry, {
+            includeAllNonPublicRelations,
             viewerId: request.user.id,
           }),
         };
@@ -1275,9 +1297,13 @@ export async function registerLoreRoutes(
       }
 
       const existing = await database.loreEntry.findFirst({
-        include: loreEntryInclude({
-          viewerId: request.user.id,
-        }),
+        select: {
+          authorId: true,
+          id: true,
+          loreType: true,
+          status: true,
+          title: true,
+        },
         where: {
           id: params.data.entryId,
           worldId: params.data.worldId,

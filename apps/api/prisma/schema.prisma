@@ -451,6 +451,7 @@ model LoreEntry {
   @@unique([worldId, slug])
   @@index([worldId, status])
   @@index([worldId, loreType])
+  @@index([worldId, updatedAt, id])
   @@index([authorId])
 }
 
@@ -472,6 +473,8 @@ model LoreRelationship {
   @@index([worldId])
   @@index([sourceId])
   @@index([targetId])
+  @@index([sourceId, updatedAt, id])
+  @@index([targetId, updatedAt, id])
 }
 
 model Proposal {
