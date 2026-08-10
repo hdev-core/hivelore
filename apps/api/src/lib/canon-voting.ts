@@ -690,6 +690,14 @@ export async function confirmCanonTransaction(
     };
   }
 
+  if (currentDecision.transactionId || currentDecision.operationIndex !== null) {
+    throw new CanonVotingError(
+      409,
+      'DECISION_ALREADY_CONFIRMED',
+      'Proposal decision is already linked to a different Hive operation.',
+    );
+  }
+
   const operation = await findConfirmedOperation({
     blockNumber: input.blockNumber,
     hafClient: input.hafClient,
@@ -716,6 +724,20 @@ export async function confirmCanonTransaction(
       400,
       'HIVE_OPERATION_INVALID',
       verification.reason ?? 'Invalid Hive operation.',
+    );
+  }
+
+  const customJsonOperation = operation.operation.custom_json_operation;
+
+  if (
+    !customJsonOperation ||
+    customJsonOperation.required_auths.length > 0 ||
+    !customJsonOperation.required_posting_auths.includes(signer)
+  ) {
+    throw new CanonVotingError(
+      400,
+      'HIVE_OPERATION_INVALID_AUTHORITY',
+      'Canon decisions must be signed with posting authority by the expected signer.',
     );
   }
 
