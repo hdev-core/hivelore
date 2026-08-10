@@ -49,6 +49,18 @@ function getErrorMessage(error: unknown) {
   return 'Contribution could not be saved.';
 }
 
+function getPreflightErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.body?.error ?? 'Contribution access could not be checked.';
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Contribution access could not be checked.';
+}
+
 function hasMeaningfulText(value: unknown): boolean {
   if (Array.isArray(value)) {
     return value.some(hasMeaningfulText);
@@ -84,7 +96,7 @@ export function ContributionEditorForm({
   const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
   const [permissionRetryKey, setPermissionRetryKey] = useState(0);
   const [permissionStatus, setPermissionStatus] = useState<
-    'checking' | 'allowed' | 'denied' | 'error'
+    'checking' | 'allowed' | 'denied' | 'error' | 'reauth'
   >('checking');
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -135,8 +147,16 @@ export function ContributionEditorForm({
           return;
         }
 
+        if (nextError instanceof ApiError && nextError.status === 401) {
+          setPermissionStatus('reauth');
+          setPermissionMessage(
+            'Your session expired. Sign in again before drafting contributions.',
+          );
+          return;
+        }
+
         setPermissionStatus('error');
-        setPermissionMessage(getErrorMessage(nextError));
+        setPermissionMessage(getPreflightErrorMessage(nextError));
       });
 
     return () => {
@@ -281,29 +301,43 @@ export function ContributionEditorForm({
           <AlertTitle>Contribution type not supported yet</AlertTitle>
           <AlertDescription>
             The contribution API currently supports lore updates and stories. The requested{' '}
-            <strong>{unsupportedType}</strong> category is not supported yet, so this draft will be
-            saved as a lore update until typed contribution categories are added.
+            <strong>{unsupportedType}</strong> is not supported yet, so this draft will be saved as
+            a lore update until typed contribution categories are added.
           </AlertDescription>
         </Alert>
       ) : null}
 
-      {permissionStatus === 'denied' || permissionStatus === 'error' ? (
+      {permissionStatus === 'denied' ||
+      permissionStatus === 'error' ||
+      permissionStatus === 'reauth' ? (
         <Card>
           <CardContent>
-            <Alert variant={permissionStatus === 'denied' ? 'danger' : 'warning'}>
+            <Alert variant={permissionStatus === 'error' ? 'warning' : 'danger'}>
               <AlertTitle>
-                {permissionStatus === 'denied'
-                  ? 'Contribution access unavailable'
-                  : 'Could not check contribution access'}
+                {permissionStatus === 'error'
+                  ? 'Could not check contribution access'
+                  : permissionStatus === 'reauth'
+                    ? 'Sign in again'
+                    : 'Contribution access unavailable'}
               </AlertTitle>
               <AlertDescription>
                 {permissionMessage ??
-                  (permissionStatus === 'denied'
-                    ? 'You do not have permission to draft contributions in this world.'
-                    : 'Try checking contribution access again.')}
+                  (permissionStatus === 'error'
+                    ? 'Try checking contribution access again.'
+                    : permissionStatus === 'reauth'
+                      ? 'Your session expired. Sign in again before drafting contributions.'
+                      : 'You do not have permission to draft contributions in this world.')}
               </AlertDescription>
             </Alert>
             <div className="flex flex-wrap gap-3">
+              {permissionStatus === 'reauth' ? (
+                <Link
+                  className="inline-flex min-h-10 items-center justify-center rounded-control border border-[var(--hive-red)] bg-[var(--hive-red)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_srgb,var(--hive-red)_88%,black)] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  href={`/login?next=${encodeURIComponent(`/worlds/${worldId}/contribute`)}`}
+                >
+                  Sign in
+                </Link>
+              ) : null}
               {permissionStatus === 'error' ? (
                 <Button
                   onClick={() => setPermissionRetryKey((currentKey) => currentKey + 1)}
