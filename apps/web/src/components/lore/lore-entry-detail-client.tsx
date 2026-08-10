@@ -24,6 +24,7 @@ import {
 
 type LoreEntryDetailClientProps = {
   entryId: string;
+  initialEntry?: LoreEntry | null;
   worldId: string;
 };
 
@@ -215,10 +216,14 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
   );
 }
 
-export function LoreEntryDetailClient({ entryId, worldId }: LoreEntryDetailClientProps) {
-  const [entry, setEntry] = useState<LoreEntry | null>(null);
+export function LoreEntryDetailClient({
+  entryId,
+  initialEntry = null,
+  worldId,
+}: LoreEntryDetailClientProps) {
+  const [entry, setEntry] = useState<LoreEntry | null>(initialEntry);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!initialEntry);
 
   useEffect(() => {
     let isActive = true;
@@ -236,8 +241,10 @@ export function LoreEntryDetailClient({ entryId, worldId }: LoreEntryDetailClien
         }
       } catch (nextError) {
         if (isActive) {
-          setEntry(null);
-          setError(getErrorMessage(nextError));
+          if (!initialEntry) {
+            setEntry(null);
+            setError(getErrorMessage(nextError));
+          }
         }
       } finally {
         if (isActive) {
@@ -251,7 +258,7 @@ export function LoreEntryDetailClient({ entryId, worldId }: LoreEntryDetailClien
     return () => {
       isActive = false;
     };
-  }, [entryId, worldId]);
+  }, [entryId, initialEntry, worldId]);
 
   if (isLoading) {
     return (

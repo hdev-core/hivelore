@@ -57,7 +57,7 @@ const loreStatusSchema = z.enum([
 
 const listLoreQuerySchema = z.object({
   loreType: loreTypeSchema.optional(),
-  page: z.coerce.number().int().positive().max(1_000).default(1),
+  page: z.coerce.number().int().positive().max(100).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   q: z.string().trim().max(200).optional(),
   status: loreStatusSchema.optional(),
@@ -102,6 +102,7 @@ const loreEntryInclude = {
     },
   },
   incomingRelations: {
+    take: MAX_RELATIONSHIPS_PER_ENTRY,
     select: {
       id: true,
       relationType: true,
@@ -118,6 +119,7 @@ const loreEntryInclude = {
     },
   },
   outgoingRelations: {
+    take: MAX_RELATIONSHIPS_PER_ENTRY,
     select: {
       id: true,
       relationType: true,
@@ -543,156 +545,178 @@ export async function registerLoreRoutes(
   const database = options.database ?? prisma;
   const routeAuthOptions = authOptions(database);
 
-  app.get('/worlds/:worldId/lore', async (request, reply) => {
-    const params = routeParamsSchema.safeParse(request.params);
-    const query = listLoreQuerySchema.safeParse(request.query);
+  app.get(
+    '/worlds/:worldId/lore',
+    {
+      config: {
+        rateLimit: {
+          max: 120,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
+      const params = routeParamsSchema.safeParse(request.params);
+      const query = listLoreQuerySchema.safeParse(request.query);
 
-    if (!params.success || !query.success) {
-      return reply.code(400).send({
-        error: 'Invalid lore query.',
-      });
-    }
-
-    const worldExists = await ensureWorldExists(database, params.data.worldId, reply);
-
-    if (!worldExists) {
-      return;
-    }
-
-    await authenticateOptional(request, database);
-
-    const requestedStatus = query.data.status ?? LoreStatus.PUBLISHED_CANON;
-    const page = query.data.page;
-    const pageSize = query.data.pageSize;
-    let includeAllNonPublicRelations = false;
-    const where: Prisma.LoreEntryWhereInput = {
-      ...(query.data.loreType ? { loreType: query.data.loreType } : {}),
-      ...(query.data.q
-        ? {
-            OR: [
-              {
-                title: {
-                  contains: query.data.q,
-                  mode: 'insensitive',
-                },
-              },
-            ],
-          }
-        : {}),
-      status: requestedStatus,
-      worldId: params.data.worldId,
-    };
-
-    if (requestedStatus !== LoreStatus.PUBLISHED_CANON) {
-      const scope = await scopeNonPublicLoreList(request, database, params.data.worldId);
-
-      if (!scope.allowed) {
-        return reply.code(scope.statusCode).send({
-          error:
-            scope.statusCode === 401
-              ? 'Authentication required.'
-              : 'Insufficient world permissions.',
+      if (!params.success || !query.success) {
+        return reply.code(400).send({
+          error: 'Invalid lore query.',
         });
       }
 
-      includeAllNonPublicRelations = scope.includeAllNonPublicRelations;
-      Object.assign(where, scope.where);
-    }
+      const worldExists = await ensureWorldExists(database, params.data.worldId, reply);
 
-    const [entries, total] = await Promise.all([
-      database.loreEntry.findMany({
-        include: loreEntryInclude,
-        orderBy: [
-          {
-            updatedAt: 'desc',
-          },
-          {
-            id: 'desc',
-          },
-        ],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        where,
-      }),
-      database.loreEntry.count({
-        where,
-      }),
-    ]);
+      if (!worldExists) {
+        return;
+      }
 
-    return {
-      entries: entries.map((entry) =>
-        serializeLoreEntry(entry, {
-          includeAllNonPublicRelations,
-          viewerId: request.user?.id,
-        }),
-      ),
-      pagination: {
-        page,
-        pageSize,
-        total,
-      },
-    };
-  });
+      await authenticateOptional(request, database);
 
-  app.get('/worlds/:worldId/lore/:entryId', async (request, reply) => {
-    const params = routeParamsSchema.required().safeParse(request.params);
-
-    if (!params.success) {
-      return reply.code(400).send({
-        error: 'Invalid lore route.',
-      });
-    }
-
-    const worldExists = await ensureWorldExists(database, params.data.worldId, reply);
-
-    if (!worldExists) {
-      return;
-    }
-
-    await authenticateOptional(request, database);
-
-    const entry = await database.loreEntry.findFirst({
-      include: loreEntryInclude,
-      where: {
-        id: params.data.entryId,
+      const requestedStatus = query.data.status ?? LoreStatus.PUBLISHED_CANON;
+      const page = query.data.page;
+      const pageSize = query.data.pageSize;
+      let includeAllNonPublicRelations = false;
+      const where: Prisma.LoreEntryWhereInput = {
+        ...(query.data.loreType ? { loreType: query.data.loreType } : {}),
+        ...(query.data.q
+          ? {
+              OR: [
+                {
+                  title: {
+                    contains: query.data.q,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            }
+          : {}),
+        status: requestedStatus,
         worldId: params.data.worldId,
+      };
+
+      if (requestedStatus !== LoreStatus.PUBLISHED_CANON) {
+        const scope = await scopeNonPublicLoreList(request, database, params.data.worldId);
+
+        if (!scope.allowed) {
+          return reply.code(scope.statusCode).send({
+            error:
+              scope.statusCode === 401
+                ? 'Authentication required.'
+                : 'Insufficient world permissions.',
+          });
+        }
+
+        includeAllNonPublicRelations = scope.includeAllNonPublicRelations;
+        Object.assign(where, scope.where);
+      }
+
+      const [entries, total] = await Promise.all([
+        database.loreEntry.findMany({
+          include: loreEntryInclude,
+          orderBy: [
+            {
+              updatedAt: 'desc',
+            },
+            {
+              id: 'desc',
+            },
+          ],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          where,
+        }),
+        database.loreEntry.count({
+          where,
+        }),
+      ]);
+
+      return {
+        entries: entries.map((entry) =>
+          serializeLoreEntry(entry, {
+            includeAllNonPublicRelations,
+            viewerId: request.user?.id,
+          }),
+        ),
+        pagination: {
+          page,
+          pageSize,
+          total,
+        },
+      };
+    },
+  );
+
+  app.get(
+    '/worlds/:worldId/lore/:entryId',
+    {
+      config: {
+        rateLimit: {
+          max: 120,
+          timeWindow: '1 minute',
+        },
       },
-    });
+    },
+    async (request, reply) => {
+      const params = routeParamsSchema.required().safeParse(request.params);
 
-    if (!entry) {
-      return reply.code(404).send({
-        error: 'Lore entry not found.',
+      if (!params.success) {
+        return reply.code(400).send({
+          error: 'Invalid lore route.',
+        });
+      }
+
+      const worldExists = await ensureWorldExists(database, params.data.worldId, reply);
+
+      if (!worldExists) {
+        return;
+      }
+
+      await authenticateOptional(request, database);
+
+      const entry = await database.loreEntry.findFirst({
+        include: loreEntryInclude,
+        where: {
+          id: params.data.entryId,
+          worldId: params.data.worldId,
+        },
       });
-    }
 
-    const canReadEntry = await canReadNonPublicLore(
-      request,
-      database,
-      params.data.worldId,
-      entry.authorId,
-    );
-
-    if (entry.status !== LoreStatus.PUBLISHED_CANON) {
-      if (!canReadEntry) {
+      if (!entry) {
         return reply.code(404).send({
           error: 'Lore entry not found.',
         });
       }
-    }
 
-    const includeAllNonPublicRelations = await canViewAllNonPublicLore(
-      request,
-      database,
-      params.data.worldId,
-    );
+      const canReadEntry = await canReadNonPublicLore(
+        request,
+        database,
+        params.data.worldId,
+        entry.authorId,
+      );
 
-    return {
-      entry: serializeLoreEntry(entry, {
-        includeAllNonPublicRelations,
-        viewerId: request.user?.id,
-      }),
-    };
-  });
+      if (entry.status !== LoreStatus.PUBLISHED_CANON) {
+        if (!canReadEntry) {
+          return reply.code(404).send({
+            error: 'Lore entry not found.',
+          });
+        }
+      }
+
+      const includeAllNonPublicRelations = await canViewAllNonPublicLore(
+        request,
+        database,
+        params.data.worldId,
+      );
+
+      return {
+        entry: serializeLoreEntry(entry, {
+          includeAllNonPublicRelations,
+          viewerId: request.user?.id,
+        }),
+      };
+    },
+  );
 
   app.post(
     '/worlds/:worldId/lore/:entryId/relationships',
@@ -757,9 +781,12 @@ export async function registerLoreRoutes(
         });
       }
 
-      if (source.status !== LoreStatus.DRAFT || target.status !== LoreStatus.DRAFT) {
+      if (
+        source.status !== LoreStatus.DRAFT ||
+        (target.status !== LoreStatus.DRAFT && target.status !== LoreStatus.PUBLISHED_CANON)
+      ) {
         return reply.code(409).send({
-          error: 'Only draft lore entries can be linked here.',
+          error: 'Draft lore can only link to draft or published canon entries here.',
         });
       }
 
@@ -908,12 +935,9 @@ export async function registerLoreRoutes(
         });
       }
 
-      if (
-        relationship.source.status !== LoreStatus.DRAFT ||
-        relationship.target.status !== LoreStatus.DRAFT
-      ) {
+      if (relationship.source.status !== LoreStatus.DRAFT) {
         return reply.code(409).send({
-          error: 'Only draft lore relationships can be deleted here.',
+          error: 'Only relationships owned by draft lore can be deleted here.',
         });
       }
 
@@ -960,6 +984,12 @@ export async function registerLoreRoutes(
   app.post(
     '/worlds/:worldId/lore',
     {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+        },
+      },
       preHandler: requireSession(routeAuthOptions),
     },
     async (request, reply) => {
@@ -1044,6 +1074,12 @@ export async function registerLoreRoutes(
   app.patch(
     '/worlds/:worldId/lore/:entryId',
     {
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: '1 minute',
+        },
+      },
       preHandler: requireSession(routeAuthOptions),
     },
     async (request, reply) => {
@@ -1155,6 +1191,12 @@ export async function registerLoreRoutes(
   app.delete(
     '/worlds/:worldId/lore/:entryId',
     {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+        },
+      },
       preHandler: requireSession(routeAuthOptions),
     },
     async (request, reply) => {

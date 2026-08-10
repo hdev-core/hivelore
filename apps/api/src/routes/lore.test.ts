@@ -704,6 +704,7 @@ describe('lore routes', () => {
 
   test('relationships cannot mutate canon entries without proposal governance', async () => {
     const state = createDatabase();
+    state.loreEntries.push(createLoreRecord({ id: 'draft-source', title: 'Draft Source' }));
     state.loreEntries.push(
       createLoreRecord({
         id: 'canon-source',
@@ -732,6 +733,15 @@ describe('lore routes', () => {
     });
     const app = await createApp(state.database);
 
+    const draftToCanon = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: 'allied_with',
+        targetId: 'canon-target',
+      },
+      url: '/worlds/world-1/lore/draft-source/relationships',
+    });
     const created = await app.inject({
       headers: authHeader(),
       method: 'POST',
@@ -747,11 +757,18 @@ describe('lore routes', () => {
       url: '/worlds/world-1/lore/canon-source/relationships/canon-relationship',
     });
 
+    assert.equal(draftToCanon.statusCode, 201);
     assert.equal(created.statusCode, 409);
-    assert.equal(created.json().error, 'Only draft lore entries can be linked here.');
+    assert.equal(
+      created.json().error,
+      'Draft lore can only link to draft or published canon entries here.',
+    );
     assert.equal(deleted.statusCode, 409);
-    assert.equal(deleted.json().error, 'Only draft lore relationships can be deleted here.');
-    assert.equal(state.loreRelationships.length, 1);
+    assert.equal(
+      deleted.json().error,
+      'Only relationships owned by draft lore can be deleted here.',
+    );
+    assert.equal(state.loreRelationships.length, 2);
     await app.close();
   });
 

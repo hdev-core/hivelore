@@ -117,6 +117,7 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
   const router = useRouter();
   const fields = getEntryFields(entry ?? { content: null });
   const [body, setBody] = useState(() => getEntryBody(entry ?? { content: null }));
+  const [currentEntry, setCurrentEntry] = useState<LoreEntry | null>(entry);
   const [error, setError] = useState<string | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(fields);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -155,7 +156,7 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
   }
 
   useEffect(() => {
-    if (!entry) {
+    if (!currentEntry) {
       return;
     }
 
@@ -175,9 +176,21 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
       setRelationshipError(null);
 
       try {
-        const response = await listLoreEntries(worldId, { status: 'DRAFT' }, accessToken);
-        const availableTargets = response.entries.filter(
-          (candidate) => candidate.id !== currentEntry.id,
+        const [draftResponse, canonResponse] = await Promise.all([
+          listLoreEntries(worldId, { status: 'DRAFT' }, accessToken),
+          listLoreEntries(worldId, {}, accessToken),
+        ]);
+        const candidatesById = new Map(
+          [...draftResponse.entries, ...canonResponse.entries].map((candidate) => [
+            candidate.id,
+            candidate,
+          ]),
+        );
+        const linkedTargetIds = new Set(
+          currentEntry.outgoingRelations?.map((relationship) => relationship.target?.id) ?? [],
+        );
+        const availableTargets = [...candidatesById.values()].filter(
+          (candidate) => candidate.id !== currentEntry.id && !linkedTargetIds.has(candidate.id),
         );
 
         if (isActive) {
@@ -195,15 +208,15 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
       }
     }
 
-    loadTargets(entry);
+    loadTargets(currentEntry);
 
     return () => {
       isActive = false;
     };
-  }, [entry, worldId]);
+  }, [currentEntry, worldId]);
 
   async function handleAddRelationship() {
-    if (!entry || !targetId) {
+    if (!currentEntry || !targetId) {
       return;
     }
 
@@ -218,16 +231,24 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     setIsLinking(true);
 
     try {
-      await createLoreRelationship(
+      const response = await createLoreRelationship(
         worldId,
-        entry.id,
+        currentEntry.id,
         {
           relationType,
           targetId,
         },
         accessToken,
       );
-      router.refresh();
+      setCurrentEntry((latestEntry) =>
+        latestEntry
+          ? {
+              ...latestEntry,
+              outgoingRelations: [...(latestEntry.outgoingRelations ?? []), response.relationship],
+            }
+          : latestEntry,
+      );
+      setTargetId('');
     } catch (nextError) {
       setRelationshipError(getErrorMessage(nextError));
     } finally {
@@ -236,7 +257,7 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
   }
 
   async function handleDeleteRelationship(relationshipId: string) {
-    if (!entry) {
+    if (!currentEntry) {
       return;
     }
 
@@ -251,8 +272,17 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     setIsLinking(true);
 
     try {
-      await deleteLoreRelationship(worldId, entry.id, relationshipId, accessToken);
-      router.refresh();
+      await deleteLoreRelationship(worldId, currentEntry.id, relationshipId, accessToken);
+      setCurrentEntry((latestEntry) =>
+        latestEntry
+          ? {
+              ...latestEntry,
+              outgoingRelations: (latestEntry.outgoingRelations ?? []).filter(
+                (relationship) => relationship.id !== relationshipId,
+              ),
+            }
+          : latestEntry,
+      );
     } catch (nextError) {
       setRelationshipError(getErrorMessage(nextError));
     } finally {
@@ -419,13 +449,13 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
         </Card>
       </section>
 
-      {entry ? (
+      {currentEntry ? (
         <Card>
           <CardHeader>
             <CardTitle>Relationship graph</CardTitle>
             <CardDescription>
-              {entry.status === 'DRAFT'
-                ? 'Link this draft to another draft lore entity.'
+              {currentEntry.status === 'DRAFT'
+                ? 'Link this draft to draft or published canon lore.'
                 : 'Published canon relationships go through proposals and voting.'}
             </CardDescription>
           </CardHeader>
@@ -450,7 +480,9 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
               </Select>
               <Select
                 aria-label="Target lore entry"
-                disabled={entry.status !== 'DRAFT' || isLoadingTargets || !targetEntries.length}
+                disabled={
+                  currentEntry.status !== 'DRAFT' || isLoadingTargets || !targetEntries.length
+                }
                 onChange={(event) => setTargetId(event.target.value)}
                 value={targetId}
               >
@@ -461,11 +493,11 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
                     </option>
                   ))
                 ) : (
-                  <option value="">No published targets yet</option>
+                  <option value="">No linkable targets yet</option>
                 )}
               </Select>
               <Button
-                disabled={entry.status !== 'DRAFT' || !targetId || isLinking}
+                disabled={currentEntry.status !== 'DRAFT' || !targetId || isLinking}
                 isLoading={isLinking}
                 onClick={handleAddRelationship}
                 type="button"
@@ -475,9 +507,9 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
               </Button>
             </div>
 
-            {entry.outgoingRelations?.length ? (
+            {currentEntry.outgoingRelations?.length ? (
               <ul className="mt-5 space-y-3">
-                {entry.outgoingRelations.map((relationship) => (
+                {currentEntry.outgoingRelations.map((relationship) => (
                   <li
                     className="flex flex-wrap items-center justify-between gap-3 rounded-panel border border-border p-3 text-sm"
                     key={relationship.id}
@@ -488,7 +520,7 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
                       </span>{' '}
                       {relationship.target?.title}
                     </span>
-                    {entry.status === 'DRAFT' ? (
+                    {currentEntry.status === 'DRAFT' ? (
                       <Button
                         disabled={isLinking}
                         onClick={() => handleDeleteRelationship(relationship.id)}
