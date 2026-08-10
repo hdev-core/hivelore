@@ -237,9 +237,18 @@ function createDatabase() {
     loreRelationship: {
       async count(args: { where: Record<string, unknown> }) {
         return loreRelationships.filter((relationship) =>
-          Object.entries(args.where).every(
-            ([key, value]) => relationship[key as keyof StoredLoreRelationship] === value,
-          ),
+          Object.entries(args.where).every(([key, value]) => {
+            if (key === 'OR' && Array.isArray(value)) {
+              return value.some((condition) =>
+                Object.entries(condition as Record<string, unknown>).every(
+                  ([nestedKey, nestedValue]) =>
+                    relationship[nestedKey as keyof StoredLoreRelationship] === nestedValue,
+                ),
+              );
+            }
+
+            return relationship[key as keyof StoredLoreRelationship] === value;
+          }),
         ).length;
       },
       async create(args: { data: Partial<StoredLoreRelationship>; select?: unknown }) {
@@ -769,6 +778,80 @@ describe('lore routes', () => {
       'Only relationships owned by draft lore can be deleted here.',
     );
     assert.equal(state.loreRelationships.length, 2);
+    await app.close();
+  });
+
+  test('relationship creation does not reveal unreadable draft targets', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(createLoreRecord({ id: 'attacker-draft', title: 'Attacker Draft' }));
+    state.loreEntries.push(
+      createLoreRecord({
+        authorId: otherUser.id,
+        id: 'victim-draft',
+        title: 'Secret Plot Twist',
+      }),
+    );
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: 'related_to',
+        targetId: 'victim-draft',
+      },
+      url: '/worlds/world-1/lore/attacker-draft/relationships',
+    });
+
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.json().error, 'Related lore entry not found.');
+    assert.equal(JSON.stringify(response.json()).includes('Secret Plot Twist'), false);
+    assert.equal(state.loreRelationships.length, 0);
+    await app.close();
+  });
+
+  test('relationship cap counts incoming edges before creating new links', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(createLoreRecord({ id: 'draft-source', title: 'Draft Source' }));
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'popular-target',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Popular Target',
+      }),
+    );
+
+    for (let index = 0; index < 100; index += 1) {
+      const sourceId = `existing-source-${index}`;
+      state.loreEntries.push(createLoreRecord({ id: sourceId, title: `Existing Source ${index}` }));
+      state.loreRelationships.push({
+        createdAt: now(),
+        id: `existing-relationship-${index}`,
+        metadata: null,
+        relationType: 'related_to',
+        sourceId,
+        targetId: 'popular-target',
+        updatedAt: now(),
+        worldId: 'world-1',
+      });
+    }
+
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: 'allied_with',
+        targetId: 'popular-target',
+      },
+      url: '/worlds/world-1/lore/draft-source/relationships',
+    });
+
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.json().error, 'A lore entry has reached the relationship limit.');
+    assert.equal(state.loreRelationships.length, 100);
     await app.close();
   });
 

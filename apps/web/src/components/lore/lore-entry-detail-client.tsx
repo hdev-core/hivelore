@@ -41,6 +41,14 @@ function getErrorMessage(error: unknown) {
   return 'Lore entry could not be loaded.';
 }
 
+function RelationshipStatusBadge({ status }: { status?: LoreEntry['status'] }) {
+  if (!status || status === 'PUBLISHED_CANON') {
+    return null;
+  }
+
+  return <Badge variant={getStatusBadgeVariant(status)}>{getStatusLabel(status)}</Badge>;
+}
+
 function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: string }) {
   const body = getEntryBody(entry);
   const readableBody = getReadableBodyText(body);
@@ -116,12 +124,15 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
                         {relationship.relationType.replaceAll('_', ' ')}
                       </span>{' '}
                       {relationship.target ? (
-                        <Link
-                          className="text-[var(--hive-red)] underline-offset-4 hover:underline"
-                          href={`/worlds/${worldId}/lore/${relationship.target.id}`}
-                        >
-                          {relationship.target.title}
-                        </Link>
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <Link
+                            className="text-[var(--hive-red)] underline-offset-4 hover:underline"
+                            href={`/worlds/${worldId}/lore/${relationship.target.id}`}
+                          >
+                            {relationship.target.title}
+                          </Link>
+                          <RelationshipStatusBadge status={relationship.target.status} />
+                        </span>
                       ) : (
                         'Unknown entry'
                       )}
@@ -130,12 +141,15 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
                   {incomingRelations.map((relationship) => (
                     <li className="text-sm leading-6" key={relationship.id}>
                       {relationship.source ? (
-                        <Link
-                          className="text-[var(--hive-red)] underline-offset-4 hover:underline"
-                          href={`/worlds/${worldId}/lore/${relationship.source.id}`}
-                        >
-                          {relationship.source.title}
-                        </Link>
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <Link
+                            className="text-[var(--hive-red)] underline-offset-4 hover:underline"
+                            href={`/worlds/${worldId}/lore/${relationship.source.id}`}
+                          >
+                            {relationship.source.title}
+                          </Link>
+                          <RelationshipStatusBadge status={relationship.source.status} />
+                        </span>
                       ) : (
                         'Unknown entry'
                       )}{' '}
@@ -225,13 +239,23 @@ export function LoreEntryDetailClient({
   const [entry, setEntry] = useState<LoreEntry | null>(initialEntry);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(!initialEntry);
+  const [isMissing, setIsMissing] = useState(false);
 
   useEffect(() => {
+    if (initialEntry) {
+      setEntry(initialEntry);
+      setError(null);
+      setIsLoading(false);
+      setIsMissing(false);
+      return;
+    }
+
     let isActive = true;
 
     async function loadEntry() {
       setError(null);
       setIsLoading(true);
+      setIsMissing(false);
 
       try {
         const accessToken = getStoredAccessToken();
@@ -243,13 +267,14 @@ export function LoreEntryDetailClient({
       } catch (nextError) {
         if (isActive) {
           if (nextError instanceof ApiError && nextError.status === 404) {
-            notFound();
+            setEntry(null);
+            setError(null);
+            setIsMissing(true);
+            return;
           }
 
-          if (!initialEntry) {
-            setEntry(null);
-            setError(getErrorMessage(nextError));
-          }
+          setEntry(null);
+          setError(getErrorMessage(nextError));
         }
       } finally {
         if (isActive) {
@@ -264,6 +289,10 @@ export function LoreEntryDetailClient({
       isActive = false;
     };
   }, [entryId, initialEntry, worldId]);
+
+  if (isMissing) {
+    notFound();
+  }
 
   if (isLoading) {
     return (

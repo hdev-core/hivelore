@@ -19,7 +19,17 @@ const STRUCTURED_CONTENT_MAX_BYTES = 100 * 1024;
 const STRUCTURED_CONTENT_MAX_DEPTH = 32;
 const RELATIONSHIP_METADATA_MAX_BYTES = 16 * 1024;
 const MAX_RELATIONSHIPS_PER_ENTRY = 100;
-const RELATION_TYPE_MAX_LENGTH = 80;
+const RELATIONSHIP_TRANSACTION_RETRIES = 3;
+const RELATIONSHIP_TYPES = [
+  'allied_with',
+  'enemy_of',
+  'member_of',
+  'rules',
+  'located_in',
+  'involved_in',
+  'created_by',
+  'related_to',
+] as const;
 
 type LoreDatabase = Pick<
   PrismaClient,
@@ -77,7 +87,6 @@ const updateLoreBodySchema = z
   .object({
     content: z.unknown().optional(),
     loreType: loreTypeSchema.optional(),
-    status: z.literal(LoreStatus.DRAFT).optional(),
     title: z.string().trim().min(1).max(200).optional(),
   })
   .strict()
@@ -88,7 +97,7 @@ const updateLoreBodySchema = z
 const createRelationshipBodySchema = z
   .object({
     metadata: z.unknown().optional(),
-    relationType: z.string().trim().min(1).max(RELATION_TYPE_MAX_LENGTH),
+    relationType: z.enum(RELATIONSHIP_TYPES),
     targetId: z.string().trim().min(1),
   })
   .strict();
@@ -128,7 +137,25 @@ function loreEntryInclude(
     viewerId?: string | undefined;
   } = {},
 ) {
-  const relationOrderBy: Prisma.LoreRelationshipOrderByWithRelationInput[] = [
+  const incomingRelationOrderBy: Prisma.LoreRelationshipOrderByWithRelationInput[] = [
+    {
+      source: {
+        status: 'desc',
+      },
+    },
+    {
+      updatedAt: 'desc',
+    },
+    {
+      id: 'desc',
+    },
+  ];
+  const outgoingRelationOrderBy: Prisma.LoreRelationshipOrderByWithRelationInput[] = [
+    {
+      target: {
+        status: 'desc',
+      },
+    },
     {
       updatedAt: 'desc',
     },
@@ -147,7 +174,7 @@ function loreEntryInclude(
       },
     },
     incomingRelations: {
-      orderBy: relationOrderBy,
+      orderBy: incomingRelationOrderBy,
       select: {
         id: true,
         relationType: true,
@@ -166,7 +193,7 @@ function loreEntryInclude(
       where: visibleRelatedEntryWhere('source', options),
     },
     outgoingRelations: {
-      orderBy: relationOrderBy,
+      orderBy: outgoingRelationOrderBy,
       select: {
         id: true,
         relationType: true,
@@ -436,6 +463,10 @@ function isPrismaUniqueConflict(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
 }
 
+function isPrismaTransactionConflict(error: unknown) {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2034';
+}
+
 async function createLoreAuditLog(
   database: Pick<LoreDatabase, 'worldAuditLog'>,
   input: {
@@ -569,6 +600,26 @@ async function canMutateDraft(
   return (
     authorId === user.id &&
     roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.EDIT_OWN_DRAFT)
+  );
+}
+
+async function canAttemptDraftMutation(
+  request: FastifyRequest,
+  database: LoreDatabase & WorldMembershipLookup,
+  worldId: string,
+) {
+  const user = request.user;
+
+  if (!user) {
+    return false;
+  }
+
+  const membership = await resolveWorldMembership(request, worldId, database);
+
+  return Boolean(
+    membership &&
+    (roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.EDIT_ANY_DRAFT) ||
+      roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.EDIT_OWN_DRAFT)),
   );
 }
 
@@ -800,6 +851,18 @@ export async function registerLoreRoutes(
         return;
       }
 
+      const canAttemptMutation = await canAttemptDraftMutation(
+        request,
+        database,
+        params.data.worldId,
+      );
+
+      if (!canAttemptMutation) {
+        return reply.code(403).send({
+          error: 'Insufficient world permissions.',
+        });
+      }
+
       if (params.data.entryId === body.data.targetId) {
         return reply.code(400).send({
           error: 'A lore entry cannot be related to itself.',
@@ -820,6 +883,7 @@ export async function registerLoreRoutes(
         }),
         database.loreEntry.findFirst({
           select: {
+            authorId: true,
             id: true,
             status: true,
           },
@@ -831,6 +895,16 @@ export async function registerLoreRoutes(
       ]);
 
       if (!source || !target) {
+        return reply.code(404).send({
+          error: 'Related lore entry not found.',
+        });
+      }
+
+      const canReadTarget =
+        target.status === LoreStatus.PUBLISHED_CANON ||
+        (await canReadNonPublicLore(request, database, params.data.worldId, target.authorId));
+
+      if (!canReadTarget) {
         return reply.code(404).send({
           error: 'Related lore entry not found.',
         });
@@ -858,78 +932,101 @@ export async function registerLoreRoutes(
         });
       }
 
-      try {
-        const relationship = await database.$transaction(
-          async (transaction) => {
-            const existingRelationshipCount = await transaction.loreRelationship.count({
-              where: {
-                sourceId: source.id,
-                worldId: params.data.worldId,
-              },
-            });
-
-            if (existingRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY) {
-              throw new LoreRouteError(409, 'This lore entry has reached the relationship limit.');
-            }
-
-            const created = await transaction.loreRelationship.create({
-              data: {
-                ...(body.data.metadata === undefined
-                  ? {}
-                  : { metadata: validateRelationshipMetadata(body.data.metadata) }),
-                relationType: body.data.relationType.trim(),
-                sourceId: source.id,
-                targetId: target.id,
-                worldId: params.data.worldId,
-              },
-              select: {
-                id: true,
-                relationType: true,
-                target: {
-                  select: {
-                    id: true,
-                    loreType: true,
-                    slug: true,
-                    status: true,
-                    title: true,
+      for (let attempt = 1; attempt <= RELATIONSHIP_TRANSACTION_RETRIES; attempt += 1) {
+        try {
+          const relationship = await database.$transaction(
+            async (transaction) => {
+              const [sourceRelationshipCount, targetRelationshipCount] = await Promise.all([
+                transaction.loreRelationship.count({
+                  where: {
+                    OR: [{ sourceId: source.id }, { targetId: source.id }],
+                    worldId: params.data.worldId,
                   },
-                },
-              },
-            });
+                }),
+                transaction.loreRelationship.count({
+                  where: {
+                    OR: [{ sourceId: target.id }, { targetId: target.id }],
+                    worldId: params.data.worldId,
+                  },
+                }),
+              ]);
 
-            await transaction.worldAuditLog.create({
-              data: {
-                action: WorldAuditAction.LORE_RELATIONSHIP_CREATED,
-                actorId: request.user!.id,
-                metadata: {
-                  relationType: created.relationType,
+              if (
+                sourceRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY ||
+                targetRelationshipCount >= MAX_RELATIONSHIPS_PER_ENTRY
+              ) {
+                throw new LoreRouteError(409, 'A lore entry has reached the relationship limit.');
+              }
+
+              const created = await transaction.loreRelationship.create({
+                data: {
+                  ...(body.data.metadata === undefined
+                    ? {}
+                    : { metadata: validateRelationshipMetadata(body.data.metadata) }),
+                  relationType: body.data.relationType,
                   sourceId: source.id,
                   targetId: target.id,
+                  worldId: params.data.worldId,
                 },
-                targetId: created.id,
-                targetType: 'LORE_RELATIONSHIP',
-                worldId: params.data.worldId,
-              },
-            });
+                select: {
+                  id: true,
+                  relationType: true,
+                  target: {
+                    select: {
+                      id: true,
+                      loreType: true,
+                      slug: true,
+                      status: true,
+                      title: true,
+                    },
+                  },
+                },
+              });
 
-            return created;
-          },
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          },
-        );
+              await transaction.worldAuditLog.create({
+                data: {
+                  action: WorldAuditAction.LORE_RELATIONSHIP_CREATED,
+                  actorId: request.user!.id,
+                  metadata: {
+                    relationType: created.relationType,
+                    sourceId: source.id,
+                    targetId: target.id,
+                  },
+                  targetId: created.id,
+                  targetType: 'LORE_RELATIONSHIP',
+                  worldId: params.data.worldId,
+                },
+              });
 
-        return reply.code(201).send({
-          relationship,
-        });
-      } catch (error) {
-        if (isPrismaUniqueConflict(error)) {
-          return reply.code(409).send({
-            error: 'This lore relationship already exists.',
+              return created;
+            },
+            {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            },
+          );
+
+          return reply.code(201).send({
+            relationship,
           });
-        }
+        } catch (error) {
+          if (isPrismaTransactionConflict(error) && attempt < RELATIONSHIP_TRANSACTION_RETRIES) {
+            continue;
+          }
 
-        return sendLoreError(error, reply);
+          if (isPrismaTransactionConflict(error)) {
+            return reply.code(409).send({
+              error: 'Relationship write conflicted. Please retry.',
+            });
+          }
+
+          if (isPrismaUniqueConflict(error)) {
+            return reply.code(409).send({
+              error: 'This lore relationship already exists.',
+            });
+          }
+
+          return sendLoreError(error, reply);
+        }
       }
     },
   );
@@ -966,6 +1063,18 @@ export async function registerLoreRoutes(
         return;
       }
 
+      const canAttemptMutation = await canAttemptDraftMutation(
+        request,
+        database,
+        params.data.worldId,
+      );
+
+      if (!canAttemptMutation) {
+        return reply.code(403).send({
+          error: 'Insufficient world permissions.',
+        });
+      }
+
       const relationship = await database.loreRelationship.findFirst({
         include: {
           source: {
@@ -993,12 +1102,6 @@ export async function registerLoreRoutes(
         });
       }
 
-      if (relationship.source.status !== LoreStatus.DRAFT) {
-        return reply.code(409).send({
-          error: 'Only relationships owned by draft lore can be deleted here.',
-        });
-      }
-
       const permitted = await canMutateDraft(
         request,
         database,
@@ -1009,6 +1112,12 @@ export async function registerLoreRoutes(
       if (!permitted) {
         return reply.code(403).send({
           error: 'Insufficient world permissions.',
+        });
+      }
+
+      if (relationship.source.status !== LoreStatus.DRAFT) {
+        return reply.code(409).send({
+          error: 'Only relationships owned by draft lore can be deleted here.',
         });
       }
 
@@ -1166,6 +1275,18 @@ export async function registerLoreRoutes(
         return;
       }
 
+      const canAttemptMutation = await canAttemptDraftMutation(
+        request,
+        database,
+        params.data.worldId,
+      );
+
+      if (!canAttemptMutation) {
+        return reply.code(403).send({
+          error: 'Insufficient world permissions.',
+        });
+      }
+
       const existing = await database.loreEntry.findFirst({
         select: {
           authorId: true,
@@ -1184,12 +1305,6 @@ export async function registerLoreRoutes(
         });
       }
 
-      if (existing.status !== LoreStatus.DRAFT) {
-        return reply.code(409).send({
-          error: 'Only draft lore entries can be edited here.',
-        });
-      }
-
       const permitted = await canMutateDraft(
         request,
         database,
@@ -1200,6 +1315,12 @@ export async function registerLoreRoutes(
       if (!permitted) {
         return reply.code(403).send({
           error: 'Insufficient world permissions.',
+        });
+      }
+
+      if (existing.status !== LoreStatus.DRAFT) {
+        return reply.code(409).send({
+          error: 'Only draft lore entries can be edited here.',
         });
       }
 
@@ -1296,6 +1417,18 @@ export async function registerLoreRoutes(
         return;
       }
 
+      const canAttemptMutation = await canAttemptDraftMutation(
+        request,
+        database,
+        params.data.worldId,
+      );
+
+      if (!canAttemptMutation) {
+        return reply.code(403).send({
+          error: 'Insufficient world permissions.',
+        });
+      }
+
       const existing = await database.loreEntry.findFirst({
         select: {
           authorId: true,
@@ -1316,12 +1449,6 @@ export async function registerLoreRoutes(
         });
       }
 
-      if (existing.status !== LoreStatus.DRAFT) {
-        return reply.code(409).send({
-          error: 'Only draft lore entries can be deleted here.',
-        });
-      }
-
       const permitted = await canMutateDraft(
         request,
         database,
@@ -1332,6 +1459,12 @@ export async function registerLoreRoutes(
       if (!permitted) {
         return reply.code(403).send({
           error: 'Insufficient world permissions.',
+        });
+      }
+
+      if (existing.status !== LoreStatus.DRAFT) {
+        return reply.code(409).send({
+          error: 'Only draft lore entries can be deleted here.',
         });
       }
 
