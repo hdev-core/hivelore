@@ -273,6 +273,67 @@ export async function registerAuthRoutes(
       if (!parsed.success) {
         return reply.code(400).send({
           error: 'Invalid refresh payload.',
+        const issuedSession = await database.$transaction(async (transaction) => {
+          await consumeAuthChallenge(transaction, {
+            challengeId: parsed.data.challengeId,
+            hmacSecret: env.AUTH_JWT_SECRET,
+            message: parsed.data.message,
+            provider: parsed.data.provider,
+            username: normalizedHiveUsername,
+          });
+
+          const user = await upsertHiveUser(transaction, {
+            normalizedHiveUsername,
+          });
+
+          return issueSession(transaction, {
+            ...sessionOptions(),
+            ipAddress: request.ip,
+            user,
+            userAgent: request.headers['user-agent'],
+          });
+        });
+
+        setRefreshCookie(reply, issuedSession.refreshToken, {
+          ...cookieOptions(),
+          maxAgeSeconds: env.AUTH_REFRESH_TOKEN_TTL_SECONDS,
+        });
+
+        return {
+          accessToken: issuedSession.accessToken,
+          expiresInSeconds: env.AUTH_ACCESS_TOKEN_TTL_SECONDS,
+          user: issuedSession.user,
+        };
+      } catch (error) {
+        if (error instanceof InvalidHiveUsernameError) {
+          return reply.code(400).send({
+            error: 'Invalid Hive username.',
+          });
+        }
+
+        return reply.code(401).send({
+          error: 'Authentication failed.',
+        });
+      }
+    },
+  );
+
+  app.post(
+    '/auth/refresh',
+    {
+      config: {
+        rateLimit: {
+          max: 40,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
+      const parsed = refreshSchema.safeParse(request.body ?? {});
+
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: 'Invalid refresh payload.',
         });
       }
 
