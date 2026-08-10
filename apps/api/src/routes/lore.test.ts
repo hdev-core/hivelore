@@ -1138,9 +1138,11 @@ describe('lore routes', () => {
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(
-      response.json().entry.incomingRelations.map(
-        (relationship: { source: { id: string } }) => relationship.source.id,
-      ),
+      response
+        .json()
+        .entry.incomingRelations.map(
+          (relationship: { source: { id: string } }) => relationship.source.id,
+        ),
       ['canon-source', 'archived-source'],
     );
     await app.close();
