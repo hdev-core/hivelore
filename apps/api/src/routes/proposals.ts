@@ -14,6 +14,12 @@ import {
 } from '../lib/canon-voting.js';
 import { HafClient } from '../lib/hive/haf-client.js';
 import { prisma } from '../lib/prisma.js';
+import {
+  createProposalComment,
+  listProposalComments,
+  ProposalCommentError,
+  PROPOSAL_COMMENT_MAX_LENGTH,
+} from '../lib/proposal-comments.js';
 import { authorizeWorldPermission } from '../lib/world-authorization.js';
 import type { WorldMembershipLookup } from '../lib/world-authorization.js';
 import { WORLD_PERMISSIONS } from '../lib/world-permissions.js';
@@ -26,6 +32,17 @@ const paramsSchema = z.object({
 const voteBodySchema = z
   .object({
     choice: z.enum(['APPROVE', 'REJECT', 'NEEDS_REVISION', 'ALTERNATE_TIMELINE']),
+  })
+  .strict();
+
+const commentsQuerySchema = z.object({
+  cursor: z.string().min(1).optional(),
+  pageSize: z.coerce.number().int().positive().optional(),
+});
+
+const commentBodySchema = z
+  .object({
+    body: z.string().max(PROPOSAL_COMMENT_MAX_LENGTH + 1),
   })
   .strict();
 
@@ -53,6 +70,17 @@ function authOptions(database: typeof prisma) {
 
 function handleCanonVotingError(error: unknown, reply: FastifyReply) {
   if (error instanceof CanonVotingError) {
+    return reply.code(error.statusCode).send({
+      code: error.code,
+      error: error.message,
+    });
+  }
+
+  throw error;
+}
+
+function handleProposalCommentError(error: unknown, reply: FastifyReply) {
+  if (error instanceof ProposalCommentError) {
     return reply.code(error.statusCode).send({
       code: error.code,
       error: error.message,
@@ -112,6 +140,72 @@ export async function registerProposalRoutes(
       return handleCanonVotingError(error, reply);
     }
   });
+
+  app.get('/worlds/:worldId/proposals/:proposalId/comments', async (request, reply) => {
+    const params = paramsSchema.safeParse(request.params);
+    const query = commentsQuerySchema.safeParse(request.query);
+
+    if (!params.success || !query.success) {
+      return reply.code(400).send({
+        code: 'INVALID_COMMENT_QUERY',
+        error: 'Invalid comment query.',
+      });
+    }
+
+    try {
+      return listProposalComments(database, {
+        cursor: query.data.cursor,
+        pageSize: query.data.pageSize,
+        proposalId: params.data.proposalId,
+        worldId: params.data.worldId,
+      });
+    } catch (error) {
+      return handleProposalCommentError(error, reply);
+    }
+  });
+
+  app.post(
+    '/worlds/:worldId/proposals/:proposalId/comments',
+    {
+      preHandler: requireSession(authOptions(database)),
+    },
+    async (request, reply) => {
+      const params = paramsSchema.safeParse(request.params);
+      const body = commentBodySchema.safeParse(request.body);
+
+      if (!params.success || !body.success) {
+        return reply.code(400).send({
+          code: 'INVALID_COMMENT_PAYLOAD',
+          error: 'Invalid comment payload.',
+        });
+      }
+
+      const authorized = await authorizeWorldPermission(
+        request,
+        reply,
+        params.data.worldId,
+        WORLD_PERMISSIONS.VOTE_ON_PROPOSAL,
+        database,
+      );
+
+      if (!authorized || !request.user) {
+        return;
+      }
+
+      try {
+        const result = await createProposalComment(database, {
+          authorId: request.user.id,
+          body: body.data.body,
+          proposalId: params.data.proposalId,
+          worldId: params.data.worldId,
+        });
+
+        return reply.code(201).send(result);
+      } catch (error) {
+        return handleProposalCommentError(error, reply);
+      }
+    },
+  );
 
   app.post(
     '/worlds/:worldId/proposals/:proposalId/votes',

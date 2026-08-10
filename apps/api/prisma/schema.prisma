@@ -92,6 +92,7 @@ enum ModerationTargetType {
   LORE_ENTRY
   LORE_RELATIONSHIP
   PROPOSAL
+  PROPOSAL_COMMENT
   APP_VOTE
   AI_REPORT
   HIVE_REFERENCE
@@ -198,6 +199,8 @@ model User {
   bibleVersions           WorldBibleVersion[]       @relation("WorldBibleVersionCreator")
   loreEntries             LoreEntry[]               @relation("LoreEntryAuthor")
   proposals               Proposal[]                @relation("ProposalAuthor")
+  proposalComments        ProposalComment[]         @relation("ProposalCommentAuthor")
+  deletedProposalComments ProposalComment[]         @relation("ProposalCommentDeleter")
   contributionDrafts      ContributionDraft[]       @relation("ContributionDraftAuthor")
   votes                   AppVote[]                 @relation("AppVoteVoter")
   moderationReports       ModerationReport[]        @relation("ModerationReporter")
@@ -521,6 +524,7 @@ model Proposal {
   decision                ProposalDecision?
   aiReports               AIReport[]
   moderationReports       ModerationReport[]
+  comments                ProposalComment[]
 
   @@index([worldId, status])
   @@index([authorId])
@@ -529,6 +533,24 @@ model Proposal {
   @@index([votingEndsAt])
   @@index([baseCanonVersionId])
   @@index([branchBaseLoreEntryId])
+}
+
+model ProposalComment {
+  id          String    @id @default(cuid())
+  proposalId  String
+  proposal    Proposal  @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  authorId    String
+  author      User      @relation("ProposalCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body        String    @db.VarChar(3000)
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?     @relation("ProposalCommentDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  /// Off-chain plain-text discussion. Comments never count as AppVote rows or canon decisions.
+
+  @@index([proposalId, createdAt, id])
+  @@index([authorId, createdAt])
+  @@index([deletedById])
 }
 
 model ContributionDraft {

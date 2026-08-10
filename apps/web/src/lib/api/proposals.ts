@@ -37,6 +37,33 @@ export type ProposalDecision = {
   votingWindowHours: number;
 };
 
+export const PROPOSAL_COMMENT_MAX_LENGTH = 3000;
+
+export type ProposalComment = {
+  author: {
+    avatarUrl: string | null;
+    displayName: string | null;
+    hiveUsername: string;
+    id: string;
+  };
+  authorId: string;
+  body: string | null;
+  createdAt: string;
+  deletedAt: string | null;
+  id: string;
+  isDeleted: boolean;
+  proposalId: string;
+};
+
+export type ProposalCommentsResponse = {
+  comments: ProposalComment[];
+  pageInfo: {
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+  totalCount: number;
+};
+
 export type ProposalDetail = {
   aiWarning: {
     acknowledged: boolean;
@@ -103,6 +130,44 @@ export function getProposal(worldId: string, proposalId: string, accessToken?: s
           headers: authHeaders(accessToken),
         }
       : undefined,
+  );
+}
+
+export function getProposalComments(input: {
+  cursor?: string | null;
+  pageSize?: number;
+  proposalId: string;
+  worldId: string;
+}) {
+  const params = new URLSearchParams();
+
+  if (input.cursor) {
+    params.set('cursor', input.cursor);
+  }
+
+  if (input.pageSize) {
+    params.set('pageSize', String(input.pageSize));
+  }
+
+  const query = params.toString();
+
+  return apiClient.get<ProposalCommentsResponse>(
+    `/worlds/${input.worldId}/proposals/${input.proposalId}/comments${query ? `?${query}` : ''}`,
+  );
+}
+
+export function createProposalComment(input: {
+  accessToken: string;
+  body: string;
+  proposalId: string;
+  worldId: string;
+}) {
+  return apiClient.post<{ comment: ProposalComment }>(
+    `/worlds/${input.worldId}/proposals/${input.proposalId}/comments`,
+    { body: input.body },
+    {
+      headers: authHeaders(input.accessToken),
+    },
   );
 }
 

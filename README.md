@@ -168,6 +168,7 @@ Stores mutable application state optimized for querying.
 
 - Drafts
 - Proposals
+- Proposal comments
 - AI reports
 - Lore graph
 - Search index
@@ -387,6 +388,13 @@ Implemented contribution endpoints:
 - `PATCH /worlds/:worldId/contributions/:contributionId`: requires `EDIT_OWN_DRAFT`, updates only mutable draft fields, and rejects submitted contributions.
 - `DELETE /worlds/:worldId/contributions/:contributionId`: requires `EDIT_OWN_DRAFT`, deletes only draft contributions, and never deletes submitted proposals.
 - `POST /worlds/:worldId/contributions/:contributionId/submit`: requires `SUBMIT_PROPOSAL`, atomically locks the draft, creates exactly one submitted proposal with an immutable `proposedContent` snapshot, and does not publish to Hive.
+
+Implemented proposal discussion endpoints:
+
+- `GET /worlds/:worldId/proposals/:proposalId/comments`: lists flat chronological off-chain proposal comments with cursor pagination. The proposal must belong to the route world. Deleted comments are returned as tombstones without the original body.
+- `POST /worlds/:worldId/proposals/:proposalId/comments`: requires authentication and the existing `VOTE_ON_PROPOSAL` world permission, derives the author from the verified session, trims plain-text body content, and enforces a 3,000-character maximum.
+
+Proposal comments are stored in PostgreSQL as mutable discussion records. They are not Hive comments, not immutable canon records, and never count as AppVote rows, approval totals, proposal outcomes, reputation, rewards, or canon status. Soft deletion preserves the discussion audit shape while normal API responses hide moderated comment bodies.
 
 ---
 

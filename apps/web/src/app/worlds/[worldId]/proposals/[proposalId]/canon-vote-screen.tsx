@@ -1,6 +1,12 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -8,12 +14,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingState } from '@/components/states/loading-state';
+import { Textarea } from '@/components/ui/textarea';
 import {
   castProposalVote,
   confirmCanonTransaction,
+  createProposalComment,
   createCanonTransaction,
   finalizeProposal,
   getProposal,
+  getProposalComments,
+  PROPOSAL_COMMENT_MAX_LENGTH,
+  type ProposalCommentsResponse,
   type ProposalDetail,
   type VoteChoice,
 } from '@/lib/api/proposals';
@@ -192,6 +203,31 @@ function ProgressBar({ label, value }: { label: string; value: number }) {
   );
 }
 
+function formatCommentTime(value: string) {
+  const date = new Date(value);
+  const diffMs = Date.now() - date.getTime();
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs >= 0 && diffMs < minute) {
+    return 'Just now';
+  }
+
+  if (diffMs >= 0 && diffMs < hour) {
+    return `${Math.floor(diffMs / minute)}m ago`;
+  }
+
+  if (diffMs >= 0 && diffMs < day) {
+    return `${Math.floor(diffMs / hour)}h ago`;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; worldId: string }) {
   const queryClient = useQueryClient();
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -203,6 +239,7 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
     transactionId: '',
   });
   const [message, setMessage] = useState<string | null>(null);
+  const [commentBody, setCommentBody] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -238,9 +275,30 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
     queryKey: ['proposal', worldId, proposalId, accessToken],
   });
 
+  const commentsQuery = useInfiniteQuery<
+    ProposalCommentsResponse,
+    Error,
+    InfiniteData<ProposalCommentsResponse, string | null>,
+    [string, string, string],
+    string | null
+  >({
+    getNextPageParam: (lastPage) => lastPage.pageInfo.nextCursor ?? undefined,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      getProposalComments({
+        cursor: pageParam,
+        pageSize: 20,
+        proposalId,
+        worldId,
+      }),
+    queryKey: ['proposal-comments', worldId, proposalId],
+  });
+
   const proposal = proposalQuery.data?.proposal;
   const invalidateProposal = () =>
     queryClient.invalidateQueries({ queryKey: ['proposal', worldId, proposalId] });
+  const invalidateComments = () =>
+    queryClient.invalidateQueries({ queryKey: ['proposal-comments', worldId, proposalId] });
 
   const voteMutation = useMutation({
     mutationFn: (choice: VoteChoice) =>
@@ -296,6 +354,29 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
     onSuccess: () => {
       setMessage('Hive operation verified and recorded.');
       void invalidateProposal();
+    },
+  });
+
+  const trimmedCommentBody = commentBody.trim();
+  const commentTooLong = commentBody.length > PROPOSAL_COMMENT_MAX_LENGTH;
+  const commentValidationMessage = !trimmedCommentBody
+    ? 'Write a comment before posting.'
+    : commentTooLong
+      ? `Comments can be ${PROPOSAL_COMMENT_MAX_LENGTH} characters or fewer.`
+      : null;
+
+  const commentMutation = useMutation({
+    mutationFn: () =>
+      createProposalComment({
+        accessToken: accessToken ?? '',
+        body: commentBody,
+        proposalId,
+        worldId,
+      }),
+    onSuccess: () => {
+      setCommentBody('');
+      setMessage('Comment posted.');
+      void invalidateComments();
     },
   });
 
@@ -378,7 +459,8 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
       {voteMutation.error ||
       finalizeMutation.error ||
       signMutation.error ||
-      confirmMutation.error ? (
+      confirmMutation.error ||
+      commentMutation.error ? (
         <Alert variant="danger">
           <AlertTitle>Action failed</AlertTitle>
           <AlertDescription>
@@ -386,7 +468,8 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
               voteMutation.error ??
                 finalizeMutation.error ??
                 signMutation.error ??
-                confirmMutation.error,
+                confirmMutation.error ??
+                commentMutation.error,
             )}
           </AlertDescription>
         </Alert>
@@ -436,6 +519,136 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
               </pre>
             ) : null}
           </div>
+
+          <section className="grid gap-4 rounded-panel border border-border bg-surface p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-semibold tracking-normal">Discussion</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {commentsQuery.data?.pages[0]?.totalCount ?? 0} comments
+                </p>
+              </div>
+              {commentsQuery.isError ? (
+                <Button onClick={() => void commentsQuery.refetch()} variant="outline">
+                  Retry
+                </Button>
+              ) : null}
+            </div>
+
+            {commentsQuery.isLoading ? (
+              <div className="grid gap-3" aria-label="Loading comments">
+                <div className="h-20 animate-pulse rounded-control bg-muted" />
+                <div className="h-20 animate-pulse rounded-control bg-muted" />
+              </div>
+            ) : commentsQuery.isError ? (
+              <Alert variant="danger">
+                <AlertTitle>Comments unavailable</AlertTitle>
+                <AlertDescription>{getErrorMessage(commentsQuery.error)}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            {commentsQuery.data &&
+            commentsQuery.data.pages.every((page) => page.comments.length === 0) ? (
+              <div className="rounded-control border border-dashed border-border p-4 text-sm text-muted-foreground">
+                No discussion yet.
+              </div>
+            ) : null}
+
+            {commentsQuery.data ? (
+              <div className="grid gap-3">
+                {commentsQuery.data.pages.flatMap((page) =>
+                  page.comments.map((comment) => (
+                    <article
+                      className="grid gap-2 rounded-control border border-border p-4"
+                      key={comment.id}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-semibold">@{comment.author.hiveUsername}</span>
+                        {comment.author.displayName ? (
+                          <span className="text-muted-foreground">
+                            {comment.author.displayName}
+                          </span>
+                        ) : null}
+                        <time className="text-muted-foreground" dateTime={comment.createdAt}>
+                          {formatCommentTime(comment.createdAt)}
+                        </time>
+                      </div>
+                      {comment.isDeleted ? (
+                        <p className="text-sm italic text-muted-foreground">
+                          This comment was removed by moderation.
+                        </p>
+                      ) : (
+                        <p className="whitespace-pre-wrap break-words text-sm leading-7">
+                          {comment.body}
+                        </p>
+                      )}
+                    </article>
+                  )),
+                )}
+              </div>
+            ) : null}
+
+            {commentsQuery.hasNextPage ? (
+              <Button
+                disabled={commentsQuery.isFetchingNextPage}
+                isLoading={commentsQuery.isFetchingNextPage}
+                onClick={() => void commentsQuery.fetchNextPage()}
+                variant="outline"
+              >
+                Load More
+              </Button>
+            ) : null}
+
+            <form
+              className="grid gap-3 border-t border-border pt-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+
+                if (!accessToken || commentValidationMessage || commentMutation.isPending) {
+                  return;
+                }
+
+                commentMutation.mutate();
+              }}
+            >
+              <label className="text-sm font-semibold" htmlFor="proposal-comment-body">
+                Add a comment
+              </label>
+              <Textarea
+                aria-describedby="proposal-comment-help proposal-comment-error"
+                disabled={!accessToken || commentMutation.isPending}
+                id="proposal-comment-body"
+                isInvalid={Boolean(commentValidationMessage && commentBody.length > 0)}
+                maxLength={PROPOSAL_COMMENT_MAX_LENGTH + 1}
+                onChange={(event) => setCommentBody(event.target.value)}
+                placeholder="Share feedback or ask a question about this proposal."
+                value={commentBody}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground" id="proposal-comment-help">
+                  {commentBody.length}/{PROPOSAL_COMMENT_MAX_LENGTH}
+                </p>
+                <Button
+                  disabled={
+                    !accessToken || Boolean(commentValidationMessage) || commentMutation.isPending
+                  }
+                  isLoading={commentMutation.isPending}
+                  type="submit"
+                  variant="hive"
+                >
+                  Post Comment
+                </Button>
+              </div>
+              <div aria-live="polite" className="text-sm text-danger" id="proposal-comment-error">
+                {commentBody.length > 0 ? commentValidationMessage : null}
+              </div>
+              {!accessToken ? (
+                <p className="text-sm text-muted-foreground">
+                  Sign in as an eligible world member to comment.
+                </p>
+              ) : null}
+            </form>
+          </section>
         </section>
 
         <aside className="grid content-start gap-5">
