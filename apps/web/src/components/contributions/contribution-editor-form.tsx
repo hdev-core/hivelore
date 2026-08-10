@@ -88,7 +88,7 @@ export function ContributionEditorForm({
   worldId,
 }: ContributionEditorFormProps) {
   const router = useRouter();
-  const { accessToken, isSessionLoading, user } = useAuthSession();
+  const { accessToken, isSessionLoading, refreshSession, user } = useAuthSession();
   const [content, setContent] = useState<StructuredEditorContent>(emptyDocument);
   const [draft, setDraft] = useState<Contribution | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,39 +105,64 @@ export function ContributionEditorForm({
   const [title, setTitle] = useState('');
 
   useEffect(() => {
-    if (!isSessionLoading && !accessToken) {
-      router.replace('/login');
-    }
-  }, [accessToken, isSessionLoading, router]);
-
-  useEffect(() => {
     if (isSessionLoading) {
       return;
     }
 
     if (!accessToken) {
-      setPermissionStatus('denied');
+      setPermissionStatus('reauth');
       setPermissionMessage('Please sign in before drafting contributions in this world.');
       return;
     }
 
     const controller = new AbortController();
+    const initialAccessToken = accessToken;
 
-    setPermissionStatus('checking');
+    setPermissionStatus((currentStatus) =>
+      currentStatus === 'allowed' ? currentStatus : 'checking',
+    );
     setError(null);
     setPermissionMessage(null);
 
-    listContributions(worldId, { page: 1, pageSize: 1 }, accessToken, {
-      signal: controller.signal,
-    })
-      .then(() => {
+    async function checkAccess() {
+      let token = initialAccessToken;
+
+      try {
+        await listContributions(worldId, { page: 1, pageSize: 1 }, token, {
+          signal: controller.signal,
+        });
+
         if (!controller.signal.aborted) {
           setPermissionStatus('allowed');
           setPermissionMessage(null);
         }
-      })
-      .catch((nextError: unknown) => {
+      } catch (nextError: unknown) {
         if (controller.signal.aborted) {
+          return;
+        }
+
+        if (nextError instanceof ApiError && nextError.status === 401) {
+          try {
+            const session = await refreshSession();
+            token = session.accessToken;
+
+            await listContributions(worldId, { page: 1, pageSize: 1 }, token, {
+              signal: controller.signal,
+            });
+
+            if (!controller.signal.aborted) {
+              setPermissionStatus('allowed');
+              setPermissionMessage(null);
+            }
+          } catch {
+            if (!controller.signal.aborted) {
+              setPermissionStatus('reauth');
+              setPermissionMessage(
+                'Your session expired. Sign in again before drafting contributions.',
+              );
+            }
+          }
+
           return;
         }
 
@@ -147,22 +172,23 @@ export function ContributionEditorForm({
           return;
         }
 
-        if (nextError instanceof ApiError && nextError.status === 401) {
-          setPermissionStatus('reauth');
-          setPermissionMessage(
-            'Your session expired. Sign in again before drafting contributions.',
-          );
+        if (nextError instanceof ApiError && nextError.status === 404) {
+          setPermissionStatus('denied');
+          setPermissionMessage('World not found.');
           return;
         }
 
         setPermissionStatus('error');
         setPermissionMessage(getPreflightErrorMessage(nextError));
-      });
+      }
+    }
+
+    checkAccess();
 
     return () => {
       controller.abort();
     };
-  }, [accessToken, isSessionLoading, permissionRetryKey, worldId]);
+  }, [accessToken, isSessionLoading, permissionRetryKey, refreshSession, worldId]);
 
   const contentBytes = getStructuredDocumentBytes(content);
   const isContentTooLarge = contentBytes > STRUCTURED_DOCUMENT_MAX_BYTES;
@@ -203,6 +229,23 @@ export function ContributionEditorForm({
     };
   }
 
+  async function runWithAuthRetry<T>(operation: (token: string) => Promise<T>) {
+    if (!accessToken) {
+      throw new Error('Please sign in before saving a contribution.');
+    }
+
+    try {
+      return await operation(accessToken);
+    } catch (nextError) {
+      if (!(nextError instanceof ApiError) || nextError.status !== 401) {
+        throw nextError;
+      }
+
+      const session = await refreshSession();
+      return operation(session.accessToken);
+    }
+  }
+
   async function saveDraft() {
     setError(null);
 
@@ -225,9 +268,11 @@ export function ContributionEditorForm({
 
     try {
       const payload = buildPayload();
-      const response = draft
-        ? await updateContribution(worldId, draft.id, payload, accessToken)
-        : await createContribution(worldId, payload, accessToken);
+      const response = await runWithAuthRetry((token) =>
+        draft
+          ? updateContribution(worldId, draft.id, payload, token)
+          : createContribution(worldId, payload, token),
+      );
 
       setDraft(response.contribution);
       return response.contribution;
@@ -266,7 +311,9 @@ export function ContributionEditorForm({
         return;
       }
 
-      const response = await submitContribution(worldId, currentDraft.id, accessToken);
+      const response = await runWithAuthRetry((token) =>
+        submitContribution(worldId, currentDraft.id, token),
+      );
       setDraft(response.contribution);
 
       if (response.proposal?.id) {
@@ -300,7 +347,7 @@ export function ContributionEditorForm({
         <Alert variant="warning">
           <AlertTitle>Contribution type not supported yet</AlertTitle>
           <AlertDescription>
-            The contribution API currently supports lore updates and stories. The requested{' '}
+            The contribution API currently supports lore updates and stories.{' '}
             <strong>{unsupportedType}</strong> is not supported yet, so this draft will be saved as
             a lore update until typed contribution categories are added.
           </AlertDescription>
