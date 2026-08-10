@@ -43,8 +43,8 @@ export type Contribution = {
 export type ContributionInput = {
   content: StructuredContributionContent;
   kind: ContributionKind;
-  summary?: string;
-  targetLoreEntryId?: string;
+  summary?: string | null;
+  targetLoreEntryId?: string | null;
   title: string;
 };
 

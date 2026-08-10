@@ -33,6 +33,7 @@ const emptyDocument: StructuredEditorContent = {
 type ContributionEditorFormProps = {
   initialKind: ContributionKind;
   targetLoreEntryId?: string;
+  unsupportedType?: string;
   worldId: string;
 };
 
@@ -71,6 +72,7 @@ function getStructuredDocumentBytes(content: StructuredEditorContent) {
 export function ContributionEditorForm({
   initialKind,
   targetLoreEntryId,
+  unsupportedType,
   worldId,
 }: ContributionEditorFormProps) {
   const router = useRouter();
@@ -146,19 +148,27 @@ export function ContributionEditorForm({
         title.trim() &&
         hasMeaningfulText(content) &&
         !isContentTooLarge &&
-        !isSaving,
+        !isSaving &&
+        !isSubmitting,
       ),
-    [accessToken, content, isContentTooLarge, isSaving, permissionStatus, title],
+    [accessToken, content, isContentTooLarge, isSaving, isSubmitting, permissionStatus, title],
   );
 
   const canSubmit = canSave && !isSubmitting;
 
   function buildPayload() {
+    const trimmedSummary = summary.trim();
+    const trimmedTargetId = targetId.trim();
+
     return {
       content,
       kind,
-      ...(summary.trim() ? { summary: summary.trim() } : {}),
-      ...(targetId.trim() ? { targetLoreEntryId: targetId.trim() } : {}),
+      ...(trimmedSummary ? { summary: trimmedSummary } : draft ? { summary: null } : {}),
+      ...(trimmedTargetId
+        ? { targetLoreEntryId: trimmedTargetId }
+        : draft
+          ? { targetLoreEntryId: null }
+          : {}),
       title: title.trim(),
     };
   }
@@ -201,6 +211,11 @@ export function ContributionEditorForm({
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isSubmitting) {
+      return;
+    }
+
     await saveDraft();
   }
 
@@ -248,6 +263,16 @@ export function ContributionEditorForm({
         <Alert variant="danger">
           <AlertTitle>Contribution was not saved</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {unsupportedType ? (
+        <Alert variant="warning">
+          <AlertTitle>Contribution type not supported yet</AlertTitle>
+          <AlertDescription>
+            The contribution API currently supports lore updates and stories. This draft will be
+            saved as a lore update until typed contribution categories are added.
+          </AlertDescription>
         </Alert>
       ) : null}
 
