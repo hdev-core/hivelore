@@ -1,5 +1,5 @@
 import type { PlatformRole as PlatformRoleType } from '../generated/prisma/enums.js';
-import type { PrismaClient, RefreshSession, User } from '../generated/prisma/client.js';
+import type { Prisma, PrismaClient, RefreshSession, User } from '../generated/prisma/client.js';
 import { randomToken, sha256Hmac, signAccessToken } from './auth-crypto.js';
 
 export type SafeUser = {
@@ -167,7 +167,7 @@ export async function rotateRefreshSession(
   const now = input.now ?? new Date();
   const tokenHash = sha256Hmac(input.refreshToken, input.refreshSecret);
 
-  return database.$transaction(async (transaction) => {
+  return database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const session = await transaction.refreshSession.findUnique({
       where: {
         refreshTokenHash: tokenHash,

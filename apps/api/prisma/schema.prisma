@@ -701,16 +701,16 @@ model HiveReference {
 }
 
 model HiveEvent {
-  id                  String        @id @default(cuid())
+  id                  String            @id @default(cuid())
   blockNumber         BigInt
   transactionId       String
   operationIndex      Int
   eventType           HiveEventType
   blockchainTimestamp DateTime
   payload             Json
-  processedAt         DateTime      @default(now())
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  processedAt         DateTime          @default(now())
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
   proposalDecision    ProposalDecision?
   /// Rebuildable indexed Hive operation; the blockchain remains authoritative.
 

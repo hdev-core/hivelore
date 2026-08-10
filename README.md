@@ -243,6 +243,58 @@ Default MVP:
 
 These rules provide basic protection against Sybil attacks while keeping governance simple.
 
+### Canon Voting MVP Rule
+
+Submitted contributions enter `VOTING` immediately with `votingStartedAt` set by the backend and
+`votingEndsAt = votingStartedAt + 48 hours`. The voting service never accepts client-supplied
+voter identity, role, tally, result, or authoritative timestamps. Authenticated world members with
+`VOTE_ON_PROPOSAL` may cast one vote per proposal and may change that vote only before
+`votingEndsAt`.
+
+Supported choices are `APPROVE`, `REJECT`, `NEEDS_REVISION`, and `ALTERNATE_TIMELINE`.
+`totalVotes` counts all four choices. Approval arithmetic is exact integer basis points:
+`approvalNumerator = APPROVE`, `approvalDenominator = APPROVE + REJECT`, and
+`approvalPercentageBps = floor(APPROVE * 10000 / approvalDenominator)`, or `0` when the denominator
+is zero. `NEEDS_REVISION` and `ALTERNATE_TIMELINE` count toward participation but do not enter the
+approval denominator.
+
+The MVP policy is centralized in `apps/api/src/lib/canon-voting-policy.ts`:
+
+- Minimum eligible internal votes: 5.
+- Approval threshold: 7000 basis points, so exactly 70% passes.
+- Voting window: 48 hours.
+- A proposal can pass only after the full window has ended.
+- Founder or author status never bypasses the rule.
+- A major AI warning remains attached and visible; it does not automatically reject a proposal.
+
+If the approval rule does not pass after the window closes, the deterministic terminal outcome is
+the plurality among `NEEDS_REVISION`, `ALTERNATE_TIMELINE`, and `REJECT`; ties resolve in that order.
+If no failed-outcome choice has votes, the result is `REJECTED`. If the proposal's recorded base canon
+version is stale at decision time, the outcome is `STALE_BASE_CONFLICT` and the proposal is surfaced
+as needing revision instead of silently applying to newer canon.
+
+Finalization creates one immutable `ProposalDecision` snapshot with per-choice counts, threshold
+version, content hash, AI-warning state, branch/conflict metadata, and a deterministic decision
+payload hash. Passing governance sets the proposal to `APPROVED_FOR_PUBLICATION`; it does not make a
+`LoreEntry` `PUBLISHED_CANON`. Published canon still requires a separately confirmed Hive lore
+post/comment and indexed `HiveReference`.
+
+Approved decisions use a non-custodial Hive signing handoff. The API returns an unsigned posting
+authority `custom_json` operation with HiveLore's stable custom JSON id (`hivelore`), schema version,
+world ID, proposal ID, content hash, outcome, timestamps, tally, thresholds, AI-warning state, and
+branch/base-canon references. The contributor signs and broadcasts through Hive Keychain or
+HiveSigner; HiveLore never requests or stores private keys.
+
+When a client reports broadcast details, the backend retrieves the operation through the configured
+HAF/Hive indexing abstraction and verifies confirmation, operation type, custom JSON id, posting
+signer, world/proposal/decision IDs, frozen tally/payload hash, timestamps, and duplicate operation
+state before linking the result to `HiveEvent` and `ProposalDecision` idempotently.
+
+Branching metadata keeps alternate continuations readable without deleting competing branches.
+Alternate-timeline decisions are excluded from canon-only projections; canonizing one branch does not
+remove other branches, which can later be revised, archived, merged, or retained under moderation
+permissions.
+
 ## Hive Voting
 
 Hive votes determine:

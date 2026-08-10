@@ -8,6 +8,7 @@ export type ProposalDecision = {
   approvalDenominator: number;
   approvalNumerator: number;
   approvalPercentageBps: number;
+  approvalThresholdBps: number;
   approveCount: number;
   alternateTimelineCount: number;
   blockchainTimestamp: string | null;
@@ -15,10 +16,12 @@ export type ProposalDecision = {
   contentHash: string;
   customJsonId: string | null;
   decidedAt: string;
+  decisionPayload: unknown;
   decisionPayloadHash: string;
   expectedSigner: string | null;
   hiveEventId: string | null;
   id: string;
+  minimumVotes: number;
   needsRevisionCount: number;
   operationIndex: number | null;
   outcome:
@@ -28,8 +31,10 @@ export type ProposalDecision = {
     | 'ALTERNATE_TIMELINE'
     | 'STALE_BASE_CONFLICT';
   rejectCount: number;
+  rulesVersion: string;
   totalVotes: number;
   transactionId: string | null;
+  votingWindowHours: number;
 };
 
 export type ProposalDetail = {
@@ -41,6 +46,7 @@ export type ProposalDetail = {
     hiveUsername: string;
     id: string;
   };
+  baseCanonVersionId: string | null;
   branchBaseLoreEntryId: string | null;
   branchLabel: string | null;
   branchParentProposalId: string | null;

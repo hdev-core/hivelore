@@ -241,7 +241,7 @@ export async function createWorld(database: WorldDatabase, input: CreateWorldInp
   const seed = normalizeSeedInput(input.seed);
 
   try {
-    const world = await database.$transaction(async (transaction) => {
+    const world = await database.$transaction(async (transaction: Prisma.TransactionClient) => {
       const slug = await generateUniqueWorldSlug(transaction, input.title);
       const createdWorld = await transaction.world.create({
         data: {
@@ -459,7 +459,7 @@ export async function getWorldHub(database: WorldDatabase, worldId: string) {
   ]);
 
   return {
-    latestLoreEntries: latestLoreEntries.map((entry) => ({
+    latestLoreEntries: latestLoreEntries.map((entry: { updatedAt: Date }) => ({
       ...entry,
       updatedAt: entry.updatedAt.toISOString(),
     })),
@@ -472,7 +472,7 @@ export async function getWorldHub(database: WorldDatabase, worldId: string) {
 }
 
 export async function updateWorld(database: WorldDatabase, input: UpdateWorldInput) {
-  const world = await database.$transaction(async (transaction) => {
+  const world = await database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const current = await transaction.world.findUnique({
       include: {
         bibleVersions: {
@@ -516,14 +516,14 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
           input.seed.firstCharacters ??
           (Array.isArray(currentSeed.firstCharacters)
             ? currentSeed.firstCharacters.filter(
-                (value): value is string => typeof value === 'string',
+                (value: unknown): value is string => typeof value === 'string',
               )
             : []),
         firstFactions:
           input.seed.firstFactions ??
           (Array.isArray(currentSeed.firstFactions)
             ? currentSeed.firstFactions.filter(
-                (value): value is string => typeof value === 'string',
+                (value: unknown): value is string => typeof value === 'string',
               )
             : []),
         firstHistoricalEvent:

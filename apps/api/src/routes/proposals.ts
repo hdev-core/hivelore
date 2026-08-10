@@ -83,7 +83,7 @@ export async function registerProposalRoutes(
 
     try {
       const proposal = await getProposalDetail(database, {
-        currentUserId: currentUser?.id,
+        ...(currentUser ? { currentUserId: currentUser.id } : {}),
         proposalId: params.data.proposalId,
         worldId: params.data.worldId,
       });

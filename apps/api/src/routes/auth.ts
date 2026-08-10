@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { env } from '../config/env.js';
+import type { Prisma } from '../generated/prisma/client.js';
 import { prisma } from '../lib/prisma.js';
 import {
   createAuthChallenge,
@@ -209,26 +210,28 @@ export async function registerAuthRoutes(
           });
         }
 
-        const issuedSession = await database.$transaction(async (transaction) => {
-          await consumeAuthChallenge(transaction, {
-            challengeId: parsed.data.challengeId,
-            hmacSecret: env.AUTH_JWT_SECRET,
-            message: parsed.data.message,
-            provider: parsed.data.provider,
-            username: normalizedHiveUsername,
-          });
+        const issuedSession = await database.$transaction(
+          async (transaction: Prisma.TransactionClient) => {
+            await consumeAuthChallenge(transaction, {
+              challengeId: parsed.data.challengeId,
+              hmacSecret: env.AUTH_JWT_SECRET,
+              message: parsed.data.message,
+              provider: parsed.data.provider,
+              username: normalizedHiveUsername,
+            });
 
-          const user = await upsertHiveUser(transaction, {
-            normalizedHiveUsername,
-          });
+            const user = await upsertHiveUser(transaction, {
+              normalizedHiveUsername,
+            });
 
-          return issueSession(transaction, {
-            ...sessionOptions(),
-            ipAddress: request.ip,
-            user,
-            userAgent: request.headers['user-agent'],
-          });
-        });
+            return issueSession(transaction, {
+              ...sessionOptions(),
+              ipAddress: request.ip,
+              user,
+              userAgent: request.headers['user-agent'],
+            });
+          },
+        );
 
         setRefreshCookie(reply, issuedSession.refreshToken, {
           ...cookieOptions(),

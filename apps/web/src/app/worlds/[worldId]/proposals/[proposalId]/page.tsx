@@ -1,4 +1,4 @@
-import { PlaceholderPage } from '@/components/layout/placeholder-page';
+import { CanonVoteScreen } from './canon-vote-screen';
 
 type ProposalPageProps = {
   params: Promise<{ proposalId: string; worldId: string }>;
@@ -7,10 +7,5 @@ type ProposalPageProps = {
 export default async function ProposalPage({ params }: ProposalPageProps) {
   const { proposalId, worldId } = await params;
 
-  return (
-    <PlaceholderPage
-      eyebrow={`World ${worldId} / Proposal ${proposalId}`}
-      title="Canon vote foundation"
-    />
-  );
+  return <CanonVoteScreen proposalId={proposalId} worldId={worldId} />;
 }

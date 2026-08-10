@@ -124,7 +124,7 @@ export function serializeProposalDetail(
 ) {
   const summary = tallyCanonVotes(proposal.votes);
   const currentVote = currentUserId
-    ? proposal.votes.find((vote) => vote.voterId === currentUserId)
+    ? proposal.votes.find((vote: { voterId: string }) => vote.voterId === currentUserId)
     : null;
   const warning = aiWarningSnapshot(proposal);
 
@@ -254,7 +254,7 @@ export async function castCanonVote(
   const choice = assertVoteChoice(input.choice);
   const now = input.now ?? new Date();
 
-  return database.$transaction(async (transaction) => {
+  return database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const proposal = await transaction.proposal.findFirst({
       select: {
         decision: { select: { id: true } },
@@ -380,7 +380,7 @@ export async function finalizeCanonDecision(
 ) {
   const now = input.now ?? new Date();
 
-  return database.$transaction(async (transaction) => {
+  return database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const existing = await transaction.proposalDecision.findUnique({
       where: {
         proposalId: input.proposalId,
@@ -678,12 +678,14 @@ export async function confirmCanonTransaction(
     );
   }
 
+  const currentDecision = proposal.decision;
+
   if (
-    proposal.decision.transactionId === input.transactionId &&
-    proposal.decision.operationIndex === input.operationIndex
+    currentDecision.transactionId === input.transactionId &&
+    currentDecision.operationIndex === input.operationIndex
   ) {
     return {
-      decision: serializeDecision(proposal.decision),
+      decision: serializeDecision(currentDecision),
       idempotent: true,
     };
   }
@@ -703,7 +705,7 @@ export async function confirmCanonTransaction(
     );
   }
 
-  const signer = (proposal.decision.expectedSigner ?? proposal.author.hiveUsername).toLowerCase();
+  const signer = (currentDecision.expectedSigner ?? proposal.author.hiveUsername).toLowerCase();
   const verification = verifyHiveLoreOperation({
     expectedSigner: signer,
     operation: operation.operation,
@@ -723,10 +725,10 @@ export async function confirmCanonTransaction(
     !payload ||
     payload.action !== 'canon_approval' ||
     payload.entityType !== 'CANON_DECISION' ||
-    payload.entityId !== proposal.decision.id ||
+    payload.entityId !== currentDecision.id ||
     payload.worldId !== input.worldId ||
     payload.proposalId !== input.proposalId ||
-    hashCanonicalJson(payload.payload) !== proposal.decision.decisionPayloadHash
+    hashCanonicalJson(payload.payload) !== currentDecision.decisionPayloadHash
   ) {
     throw new CanonVotingError(
       400,
@@ -735,7 +737,7 @@ export async function confirmCanonTransaction(
     );
   }
 
-  return database.$transaction(async (transaction) => {
+  return database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const hiveEvent = await transaction.hiveEvent.upsert({
       create: {
         blockNumber: operation.blockNumber,
@@ -759,7 +761,7 @@ export async function confirmCanonTransaction(
       },
     });
 
-    const decision = await transaction.proposalDecision.update({
+    const confirmedDecision = await transaction.proposalDecision.update({
       data: {
         blockchainTimestamp: operation.blockchainTimestamp,
         blockNumber: operation.blockNumber,
@@ -770,12 +772,12 @@ export async function confirmCanonTransaction(
         transactionId: operation.transactionId,
       },
       where: {
-        id: proposal.decision.id,
+        id: currentDecision.id,
       },
     });
 
     return {
-      decision: serializeDecision(decision),
+      decision: serializeDecision(confirmedDecision),
       idempotent: false,
     };
   });
