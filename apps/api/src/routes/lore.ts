@@ -92,53 +92,102 @@ const createRelationshipBodySchema = z
   })
   .strict();
 
-const loreEntryInclude = {
-  author: {
-    select: {
-      avatarUrl: true,
-      displayName: true,
-      hiveUsername: true,
-      id: true,
-    },
+function visibleRelatedEntryWhere(
+  side: 'source' | 'target',
+  options: {
+    includeAllNonPublicRelations?: boolean;
+    viewerId?: string | undefined;
   },
-  incomingRelations: {
-    take: MAX_RELATIONSHIPS_PER_ENTRY,
-    select: {
-      id: true,
-      relationType: true,
-      source: {
-        select: {
-          authorId: true,
-          id: true,
-          loreType: true,
-          slug: true,
-          status: true,
-          title: true,
-        },
+): Prisma.LoreRelationshipWhereInput {
+  if (options.includeAllNonPublicRelations) {
+    return {};
+  }
+
+  const relatedEntryWhere: Prisma.LoreEntryWhereInput = {
+    OR: [
+      {
+        status: LoreStatus.PUBLISHED_CANON,
+      },
+      ...(options.viewerId
+        ? [
+            {
+              authorId: options.viewerId,
+            },
+          ]
+        : []),
+    ],
+  };
+
+  return side === 'source' ? { source: relatedEntryWhere } : { target: relatedEntryWhere };
+}
+
+function loreEntryInclude(
+  options: {
+    includeAllNonPublicRelations?: boolean;
+    viewerId?: string | undefined;
+  } = {},
+) {
+  const relationOrderBy: Prisma.LoreRelationshipOrderByWithRelationInput[] = [
+    {
+      updatedAt: 'desc',
+    },
+    {
+      id: 'desc',
+    },
+  ];
+
+  return {
+    author: {
+      select: {
+        avatarUrl: true,
+        displayName: true,
+        hiveUsername: true,
+        id: true,
       },
     },
-  },
-  outgoingRelations: {
-    take: MAX_RELATIONSHIPS_PER_ENTRY,
-    select: {
-      id: true,
-      relationType: true,
-      target: {
-        select: {
-          authorId: true,
-          id: true,
-          loreType: true,
-          slug: true,
-          status: true,
-          title: true,
+    incomingRelations: {
+      orderBy: relationOrderBy,
+      select: {
+        id: true,
+        relationType: true,
+        source: {
+          select: {
+            authorId: true,
+            id: true,
+            loreType: true,
+            slug: true,
+            status: true,
+            title: true,
+          },
         },
       },
+      take: MAX_RELATIONSHIPS_PER_ENTRY,
+      where: visibleRelatedEntryWhere('source', options),
     },
-  },
-} as const;
+    outgoingRelations: {
+      orderBy: relationOrderBy,
+      select: {
+        id: true,
+        relationType: true,
+        target: {
+          select: {
+            authorId: true,
+            id: true,
+            loreType: true,
+            slug: true,
+            status: true,
+            title: true,
+          },
+        },
+      },
+      take: MAX_RELATIONSHIPS_PER_ENTRY,
+      where: visibleRelatedEntryWhere('target', options),
+    },
+  } satisfies Prisma.LoreEntryInclude;
+}
 
 type LoreEntryWithRelations = Prisma.LoreEntryGetPayload<{
-  include: typeof loreEntryInclude;
+  include: ReturnType<typeof loreEntryInclude>;
 }>;
 
 class LoreRouteError extends Error {
@@ -613,7 +662,10 @@ export async function registerLoreRoutes(
 
       const [entries, total] = await Promise.all([
         database.loreEntry.findMany({
-          include: loreEntryInclude,
+          include: loreEntryInclude({
+            includeAllNonPublicRelations,
+            viewerId: request.user?.id,
+          }),
           orderBy: [
             {
               updatedAt: 'desc',
@@ -673,9 +725,17 @@ export async function registerLoreRoutes(
       }
 
       await authenticateOptional(request, database);
+      const includeAllNonPublicRelations = await canViewAllNonPublicLore(
+        request,
+        database,
+        params.data.worldId,
+      );
 
       const entry = await database.loreEntry.findFirst({
-        include: loreEntryInclude,
+        include: loreEntryInclude({
+          includeAllNonPublicRelations,
+          viewerId: request.user?.id,
+        }),
         where: {
           id: params.data.entryId,
           worldId: params.data.worldId,
@@ -702,12 +762,6 @@ export async function registerLoreRoutes(
           });
         }
       }
-
-      const includeAllNonPublicRelations = await canViewAllNonPublicLore(
-        request,
-        database,
-        params.data.worldId,
-      );
 
       return {
         entry: serializeLoreEntry(entry, {
@@ -1036,7 +1090,9 @@ export async function registerLoreRoutes(
               title,
               worldId: params.data.worldId,
             },
-            include: loreEntryInclude,
+            include: loreEntryInclude({
+              viewerId: request.user!.id,
+            }),
           });
 
           await createLoreAuditLog(transaction, {
@@ -1099,7 +1155,9 @@ export async function registerLoreRoutes(
       }
 
       const existing = await database.loreEntry.findFirst({
-        include: loreEntryInclude,
+        include: loreEntryInclude({
+          viewerId: request.user.id,
+        }),
         where: {
           id: params.data.entryId,
           worldId: params.data.worldId,
@@ -1151,7 +1209,9 @@ export async function registerLoreRoutes(
         const entry = await database.$transaction(async (transaction) => {
           const updated = await transaction.loreEntry.update({
             data,
-            include: loreEntryInclude,
+            include: loreEntryInclude({
+              viewerId: request.user!.id,
+            }),
             where: {
               id: existing.id,
             },
@@ -1215,7 +1275,9 @@ export async function registerLoreRoutes(
       }
 
       const existing = await database.loreEntry.findFirst({
-        include: loreEntryInclude,
+        include: loreEntryInclude({
+          viewerId: request.user.id,
+        }),
         where: {
           id: params.data.entryId,
           worldId: params.data.worldId,

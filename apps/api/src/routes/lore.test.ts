@@ -330,7 +330,7 @@ function createDatabase() {
         const userId = args.where.id.replace(/^session-/, '');
 
         return {
-          expiresAt: new Date('2026-08-10T12:15:00.000Z'),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           revokedAt: null,
           userId,
         };

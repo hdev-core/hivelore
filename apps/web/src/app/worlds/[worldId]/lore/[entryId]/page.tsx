@@ -1,5 +1,3 @@
-import { notFound } from 'next/navigation';
-
 import { LoreEntryDetailClient } from '@/components/lore/lore-entry-detail-client';
 import { ApiError } from '@/lib/api/errors';
 import { getLoreEntry } from '@/lib/api/lore';
@@ -19,7 +17,7 @@ export default async function LoreEntryPage({ params }: LoreEntryPageProps) {
     );
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
-      notFound();
+      return <LoreEntryDetailClient entryId={entryId} worldId={worldId} />;
     }
 
     throw error;
