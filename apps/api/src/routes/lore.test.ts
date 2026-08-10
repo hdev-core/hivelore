@@ -254,6 +254,17 @@ function createDatabase() {
               return source?.authorId === (value as { authorId: string }).authorId;
             }
 
+            if (key === 'target' && value && typeof value === 'object' && 'authorId' in value) {
+              const target = loreEntries.find((entry) => entry.id === relationship.targetId);
+              const authorFilter = (value as { authorId: string | { not: string } }).authorId;
+
+              if (typeof authorFilter === 'object' && 'not' in authorFilter) {
+                return target?.authorId !== authorFilter.not;
+              }
+
+              return target?.authorId === authorFilter;
+            }
+
             return relationship[key as keyof StoredLoreRelationship] === value;
           }),
         ).length;
@@ -788,7 +799,7 @@ describe('lore routes', () => {
     await app.close();
   });
 
-  test('relationship creation checks source permission before revealing status', async () => {
+  test('relationship creation hides unauthorized sources before revealing status', async () => {
     const state = createDatabase();
     state.memberships.find((membership) => membership.userId === otherUser.id)!.role =
       WorldRole.CONTRIBUTOR;
@@ -820,8 +831,8 @@ describe('lore routes', () => {
       url: '/worlds/world-1/lore/other-canon-source/relationships',
     });
 
-    assert.equal(response.statusCode, 403);
-    assert.equal(response.json().error, 'Insufficient world permissions.');
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.json().error, 'Lore entry not found.');
     assert.equal(state.loreRelationships.length, 0);
     await app.close();
   });
@@ -855,9 +866,17 @@ describe('lore routes', () => {
     await app.close();
   });
 
-  test('relationship cap limits incoming edges per source author', async () => {
+  test('cross-author relationship cap limits abusive inbound edges per source author', async () => {
     const state = createDatabase();
-    state.loreEntries.push(createLoreRecord({ id: 'draft-source', title: 'Draft Source' }));
+    state.memberships.find((membership) => membership.userId === otherUser.id)!.role =
+      WorldRole.CONTRIBUTOR;
+    state.loreEntries.push(
+      createLoreRecord({
+        authorId: otherUser.id,
+        id: 'draft-source',
+        title: 'Draft Source',
+      }),
+    );
     state.loreEntries.push(
       createLoreRecord({
         id: 'popular-target',
@@ -867,9 +886,15 @@ describe('lore routes', () => {
       }),
     );
 
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < 50; index += 1) {
       const sourceId = `existing-source-${index}`;
-      state.loreEntries.push(createLoreRecord({ id: sourceId, title: `Existing Source ${index}` }));
+      state.loreEntries.push(
+        createLoreRecord({
+          authorId: otherUser.id,
+          id: sourceId,
+          title: `Existing Source ${index}`,
+        }),
+      );
       state.loreRelationships.push({
         createdAt: now(),
         id: `existing-relationship-${index}`,
@@ -885,7 +910,7 @@ describe('lore routes', () => {
     const app = await createApp(state.database);
 
     const response = await app.inject({
-      headers: authHeader(),
+      headers: authHeader(otherUser),
       method: 'POST',
       payload: {
         relationType: 'allied_with',
@@ -897,9 +922,46 @@ describe('lore routes', () => {
     assert.equal(response.statusCode, 409);
     assert.equal(
       response.json().error,
-      'This author has reached the inbound relationship limit for that entry.',
+      'This author has reached the cross-author relationship limit for that entry.',
     );
-    assert.equal(state.loreRelationships.length, 10);
+    assert.equal(state.loreRelationships.length, 50);
+    await app.close();
+  });
+
+  test('same-author hubs can collect more than ten incoming links', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(createLoreRecord({ id: 'faction-hub', title: 'Faction Hub' }));
+
+    for (let index = 0; index < 10; index += 1) {
+      const sourceId = `member-${index}`;
+      state.loreEntries.push(createLoreRecord({ id: sourceId, title: `Member ${index}` }));
+      state.loreRelationships.push({
+        createdAt: now(),
+        id: `existing-relationship-${index}`,
+        metadata: null,
+        relationType: 'member_of',
+        sourceId,
+        targetId: 'faction-hub',
+        updatedAt: now(),
+        worldId: 'world-1',
+      });
+    }
+
+    state.loreEntries.push(createLoreRecord({ id: 'member-10', title: 'Member 10' }));
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        relationType: 'member_of',
+        targetId: 'faction-hub',
+      },
+      url: '/worlds/world-1/lore/member-10/relationships',
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(state.loreRelationships.length, 11);
     await app.close();
   });
 
@@ -966,7 +1028,7 @@ describe('lore routes', () => {
     ) => {
       attempts += 1;
 
-      if (attempts === 1) {
+      if (attempts < 9) {
         throw Object.assign(new Error('TransactionWriteConflict'), {
           cause: {
             kind: 'TransactionWriteConflict',
@@ -991,7 +1053,7 @@ describe('lore routes', () => {
     });
 
     assert.equal(response.statusCode, 201);
-    assert.equal(attempts, 2);
+    assert.equal(attempts, 9);
     assert.equal(state.loreRelationships.length, 1);
     await app.close();
   });
@@ -1015,6 +1077,72 @@ describe('lore routes', () => {
     assert.equal(response.statusCode, 400);
     assert.equal(response.json().error, 'Invalid lore relationship payload.');
     assert.equal(state.loreRelationships.length, 0);
+    await app.close();
+  });
+
+  test('curator relation projection ranks canon edges before non-canon edges', async () => {
+    const state = createDatabase();
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'canon-target',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Canon Target',
+      }),
+    );
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'archived-source',
+        publishedAt: null,
+        status: LoreStatus.ARCHIVED,
+        title: 'Archived Source',
+      }),
+    );
+    state.loreEntries.push(
+      createLoreRecord({
+        id: 'canon-source',
+        publishedAt: now(),
+        status: LoreStatus.PUBLISHED_CANON,
+        title: 'Canon Source',
+      }),
+    );
+    state.loreRelationships.push(
+      {
+        createdAt: now(),
+        id: 'archived-relationship',
+        metadata: null,
+        relationType: 'related_to',
+        sourceId: 'archived-source',
+        targetId: 'canon-target',
+        updatedAt: now(),
+        worldId: 'world-1',
+      },
+      {
+        createdAt: now(),
+        id: 'canon-relationship',
+        metadata: null,
+        relationType: 'related_to',
+        sourceId: 'canon-source',
+        targetId: 'canon-target',
+        updatedAt: now(),
+        worldId: 'world-1',
+      },
+    );
+    const app = await createApp(state.database);
+
+    const response = await app.inject({
+      headers: authHeader(curator),
+      method: 'GET',
+      url: '/worlds/world-1/lore/canon-target',
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(
+      response.json().entry.incomingRelations.map(
+        (relationship: { source: { id: string } }) => relationship.source.id,
+      ),
+      ['canon-source', 'archived-source'],
+    );
     await app.close();
   });
 

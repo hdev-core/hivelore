@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/api/errors';
 import { listLoreEntries, type LoreEntry } from '@/lib/api/lore';
+import { getStoredAccessToken } from '@/lib/api/session';
 import { loreCategories, type LoreCategory } from '@/lib/worlds/constants';
 
 import {
@@ -67,10 +68,15 @@ export function LoreEntityTabs({ fallbackEntries, worldId }: LoreEntityTabsProps
 
       try {
         const trimmedQuery = query.trim();
-        const response = await listLoreEntries(worldId, {
-          ...(trimmedQuery ? { q: trimmedQuery } : {}),
-          loreType: getLoreTypeFromCategory(activeCategory),
-        });
+        const accessToken = getStoredAccessToken();
+        const response = await listLoreEntries(
+          worldId,
+          {
+            ...(trimmedQuery ? { q: trimmedQuery } : {}),
+            loreType: getLoreTypeFromCategory(activeCategory),
+          },
+          accessToken,
+        );
 
         if (isActive) {
           setEntries(response.entries);

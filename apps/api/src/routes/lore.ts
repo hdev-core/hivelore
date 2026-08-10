@@ -19,8 +19,8 @@ const STRUCTURED_CONTENT_MAX_BYTES = 100 * 1024;
 const STRUCTURED_CONTENT_MAX_DEPTH = 32;
 const RELATIONSHIP_METADATA_MAX_BYTES = 16 * 1024;
 const MAX_RELATIONSHIPS_PER_ENTRY = 100;
-const MAX_INBOUND_RELATIONSHIPS_PER_AUTHOR_PER_ENTRY = 10;
-const RELATIONSHIP_TRANSACTION_RETRIES = 3;
+const MAX_CROSS_AUTHOR_INBOUND_RELATIONSHIPS_PER_AUTHOR_PER_ENTRY = 50;
+const RELATIONSHIP_TRANSACTION_RETRIES = 10;
 const RELATIONSHIP_TYPES = [
   'allied_with',
   'enemy_of',
@@ -141,7 +141,10 @@ function loreEntryInclude(
   const incomingRelationOrderBy: Prisma.LoreRelationshipOrderByWithRelationInput[] = [
     {
       source: {
-        status: 'desc',
+        publishedAt: {
+          sort: 'desc',
+          nulls: 'last',
+        },
       },
     },
     {
@@ -154,7 +157,10 @@ function loreEntryInclude(
   const outgoingRelationOrderBy: Prisma.LoreRelationshipOrderByWithRelationInput[] = [
     {
       target: {
-        status: 'desc',
+        publishedAt: {
+          sort: 'desc',
+          nulls: 'last',
+        },
       },
     },
     {
@@ -252,6 +258,8 @@ function serializeLoreEntry(
     relatedEntry.status === LoreStatus.PUBLISHED_CANON ||
     options.includeAllNonPublicRelations ||
     ('authorId' in relatedEntry && relatedEntry.authorId === options.viewerId);
+  const relationshipStatusRank = (status: LoreStatus) =>
+    status === LoreStatus.PUBLISHED_CANON ? 0 : 1;
 
   return {
     author: entry.author,
@@ -262,6 +270,10 @@ function serializeLoreEntry(
     id: entry.id,
     incomingRelations: entry.incomingRelations
       .filter((relation) => canShowRelatedEntry(relation.source))
+      .sort(
+        (left, right) =>
+          relationshipStatusRank(left.source.status) - relationshipStatusRank(right.source.status),
+      )
       .map((relation) => ({
         id: relation.id,
         relationType: relation.relationType,
@@ -276,6 +288,10 @@ function serializeLoreEntry(
     loreType: entry.loreType,
     outgoingRelations: entry.outgoingRelations
       .filter((relation) => canShowRelatedEntry(relation.target))
+      .sort(
+        (left, right) =>
+          relationshipStatusRank(left.target.status) - relationshipStatusRank(right.target.status),
+      )
       .map((relation) => ({
         id: relation.id,
         relationType: relation.relationType,
@@ -704,7 +720,11 @@ export async function registerLoreRoutes(
       const requestedStatus = query.data.status ?? LoreStatus.PUBLISHED_CANON;
       const page = query.data.page;
       const pageSize = query.data.pageSize;
-      let includeAllNonPublicRelations = false;
+      let includeAllNonPublicRelations = await canViewAllNonPublicLore(
+        request,
+        database,
+        params.data.worldId,
+      );
       const where: Prisma.LoreEntryWhereInput = {
         ...(query.data.loreType ? { loreType: query.data.loreType } : {}),
         ...(query.data.q
@@ -945,8 +965,8 @@ export async function registerLoreRoutes(
       );
 
       if (!permitted) {
-        return reply.code(403).send({
-          error: 'Insufficient world permissions.',
+        return reply.code(404).send({
+          error: 'Lore entry not found.',
         });
       }
 
@@ -974,21 +994,31 @@ export async function registerLoreRoutes(
                 throw new LoreRouteError(409, 'A lore entry has reached the relationship limit.');
               }
 
-              const targetInboundByAuthorCount = await transaction.loreRelationship.count({
-                where: {
-                  source: {
-                    authorId: source.authorId,
+              if (source.authorId !== target.authorId) {
+                const crossAuthorInboundCount = await transaction.loreRelationship.count({
+                  where: {
+                    source: {
+                      authorId: source.authorId,
+                    },
+                    target: {
+                      authorId: {
+                        not: source.authorId,
+                      },
+                    },
+                    targetId: target.id,
+                    worldId: params.data.worldId,
                   },
-                  targetId: target.id,
-                  worldId: params.data.worldId,
-                },
-              });
+                });
 
-              if (targetInboundByAuthorCount >= MAX_INBOUND_RELATIONSHIPS_PER_AUTHOR_PER_ENTRY) {
-                throw new LoreRouteError(
-                  409,
-                  'This author has reached the inbound relationship limit for that entry.',
-                );
+                if (
+                  crossAuthorInboundCount >=
+                  MAX_CROSS_AUTHOR_INBOUND_RELATIONSHIPS_PER_AUTHOR_PER_ENTRY
+                ) {
+                  throw new LoreRouteError(
+                    409,
+                    'This author has reached the cross-author relationship limit for that entry.',
+                  );
+                }
               }
 
               const created = await transaction.loreRelationship.create({
