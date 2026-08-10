@@ -6,6 +6,7 @@ import {
   VoteChoice,
   WorldAuditAction,
 } from '../generated/prisma/enums.js';
+import type { HiveReliableBroadcaster } from './hive/broadcast-reliability.js';
 import { HIVELORE_CUSTOM_JSON_ID } from './hive/constants.js';
 import {
   buildHiveLoreCustomJsonOperation,
@@ -620,11 +621,32 @@ export async function createCanonTransactionOperation(
 }
 
 async function findConfirmedOperation(input: {
-  blockNumber: number;
+  blockNumber?: number | undefined;
+  expectedOperation: ReturnType<typeof buildHiveLoreCustomJsonOperation>;
+  expectedSigner: string;
   hafClient: HafClient;
-  operationIndex: number;
+  hiveBroadcaster?: HiveReliableBroadcaster | undefined;
+  operationIndex?: number | undefined;
   transactionId: string;
 }): Promise<NormalizedHiveOperation | null> {
+  if (input.hiveBroadcaster) {
+    return input.hiveBroadcaster.confirmTransactionOperation({
+      blockNumberHint: input.blockNumber,
+      expectedOperation: input.expectedOperation,
+      expectedSigner: input.expectedSigner,
+      operationIndex: input.operationIndex,
+      transactionId: input.transactionId,
+    });
+  }
+
+  if (!input.blockNumber || input.operationIndex === undefined) {
+    throw new CanonVotingError(
+      400,
+      'CONFIRMATION_LOOKUP_UNAVAILABLE',
+      'A confirmation service or block and operation hints are required.',
+    );
+  }
+
   const page = await input.hafClient.searchBlocks({
     fromBlock: input.blockNumber,
     toBlock: input.blockNumber,
@@ -647,9 +669,10 @@ async function findConfirmedOperation(input: {
 export async function confirmCanonTransaction(
   database: CanonVotingDatabase,
   input: {
-    blockNumber: number;
+    blockNumber?: number | undefined;
     hafClient: HafClient;
-    operationIndex: number;
+    hiveBroadcaster?: HiveReliableBroadcaster | undefined;
+    operationIndex?: number | undefined;
     proposalId: string;
     transactionId: string;
     worldId: string;
@@ -682,7 +705,7 @@ export async function confirmCanonTransaction(
 
   if (
     currentDecision.transactionId === input.transactionId &&
-    currentDecision.operationIndex === input.operationIndex
+    (input.operationIndex === undefined || currentDecision.operationIndex === input.operationIndex)
   ) {
     return {
       decision: serializeDecision(currentDecision),
@@ -698,9 +721,22 @@ export async function confirmCanonTransaction(
     );
   }
 
+  const signer = (currentDecision.expectedSigner ?? proposal.author.hiveUsername).toLowerCase();
+  const expectedOperation = buildHiveLoreCustomJsonOperation({
+    action: 'canon_approval',
+    entityId: currentDecision.id,
+    entityType: 'CANON_DECISION',
+    payload: currentDecision.decisionPayload as Record<string, unknown>,
+    proposalId: input.proposalId,
+    signer,
+    worldId: input.worldId,
+  });
   const operation = await findConfirmedOperation({
     blockNumber: input.blockNumber,
+    expectedOperation,
+    expectedSigner: signer,
     hafClient: input.hafClient,
+    hiveBroadcaster: input.hiveBroadcaster,
     operationIndex: input.operationIndex,
     transactionId: input.transactionId,
   });
@@ -713,7 +749,6 @@ export async function confirmCanonTransaction(
     );
   }
 
-  const signer = (currentDecision.expectedSigner ?? proposal.author.hiveUsername).toLowerCase();
   const verification = verifyHiveLoreOperation({
     expectedSigner: signer,
     operation: operation.operation,

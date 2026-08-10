@@ -23,6 +23,8 @@ import {
 import { authorizeWorldPermission } from '../lib/world-authorization.js';
 import type { WorldMembershipLookup } from '../lib/world-authorization.js';
 import { WORLD_PERMISSIONS } from '../lib/world-permissions.js';
+import { createHiveReliableBroadcaster } from '../lib/hive/client.js';
+import type { HiveReliableBroadcaster } from '../lib/hive/broadcast-reliability.js';
 
 const paramsSchema = z.object({
   proposalId: z.string().min(1),
@@ -48,8 +50,8 @@ const commentBodySchema = z
 
 const confirmBodySchema = z
   .object({
-    blockNumber: z.coerce.number().int().positive(),
-    operationIndex: z.coerce.number().int().nonnegative(),
+    blockNumber: z.coerce.number().int().positive().optional(),
+    operationIndex: z.coerce.number().int().nonnegative().optional(),
     transactionId: z.string().trim().min(1).max(128),
   })
   .strict();
@@ -57,6 +59,7 @@ const confirmBodySchema = z
 type RegisterProposalRoutesOptions = {
   database?: typeof prisma & WorldMembershipLookup;
   hafClient?: HafClient;
+  hiveBroadcaster?: HiveReliableBroadcaster;
 };
 
 function authOptions(database: typeof prisma) {
@@ -96,6 +99,7 @@ export async function registerProposalRoutes(
 ) {
   const database = options.database ?? prisma;
   const hafClient = options.hafClient ?? new HafClient({ baseUrl: env.HAF_API_URL });
+  const hiveBroadcaster = options.hiveBroadcaster ?? createHiveReliableBroadcaster();
 
   app.get('/worlds/:worldId/proposals/:proposalId', async (request, reply) => {
     const params = paramsSchema.safeParse(request.params);
@@ -348,6 +352,7 @@ export async function registerProposalRoutes(
         return confirmCanonTransaction(database, {
           ...body.data,
           hafClient,
+          hiveBroadcaster,
           proposalId: params.data.proposalId,
           worldId: params.data.worldId,
         });

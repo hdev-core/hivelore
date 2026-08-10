@@ -574,6 +574,24 @@ HIVE_AUTH_AUDIENCE="hivelore-local-api"
 HIVE_RPC_URL="https://api.hive.blog"
 HAF_API_URL="https://api.hive.blog/hafbe-api"
 HIVELORE_APP_ID="hivelore/0.1.0"
+HIVE_NETWORK="mainnet"
+HIVE_MAINNET_CHAIN_ID="beeab0de00000000000000000000000000000000000000000000000000000000"
+HIVE_MAINNET_RPC_NODES="https://api.hive.blog"
+HIVE_MAINNET_HAF_URL="https://api.hive.blog/hafbe-api"
+HIVE_TESTNET_CHAIN_ID="18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e"
+HIVE_TESTNET_RPC_NODES="https://testnet.openhive.network"
+HIVE_TESTNET_HAF_URL=""
+HIVE_BROADCAST_MAX_ATTEMPTS=4
+HIVE_BROADCAST_INITIAL_DELAY_MS=500
+HIVE_BROADCAST_MAX_DELAY_MS=5000
+HIVE_BROADCAST_BACKOFF_MULTIPLIER=2
+HIVE_BROADCAST_JITTER_RATIO=0.2
+HIVE_BROADCAST_TIMEOUT_MS=10000
+HIVE_BROADCAST_TOTAL_DEADLINE_MS=30000
+HIVE_CONFIRMATION_POLL_INTERVAL_MS=3000
+HIVE_CONFIRMATION_TIMEOUT_MS=60000
+HIVE_NODE_MAX_CONSECUTIVE_FAILURES=1
+HIVE_NODE_COOLDOWN_MS=30000
 
 # Optional Google-to-Hive linking and onboarding. Disabled for the base MVP.
 GOOGLE_AUTH_ENABLED=false
@@ -662,6 +680,30 @@ The seed at `apps/api/prisma/seed.ts` is development-only and contains fictional
 Hive is authoritative for on-chain publication, authorship, rewards, beneficiary metadata, and blockchain events. `HiveReference`, `HiveEvent`, `RewardRecord`, and `UserRewardSummary` are indexed or derived database projections. A local PostgreSQL flag or timestamp is never sufficient to prove canon; canon requires an approved publication that has been published to Hive and indexed by HiveLore.
 
 All backend Hive access goes through `apps/api/src/lib/hive`. The module uses `@hiveio/wax` for transaction build, serialization, signing handoff, and broadcast; it exposes signer abstractions for Hive Keychain and HiveSigner flows without storing private keys. HAF reads use the configurable read-only `HAF_API_URL` client and are normalized before projection into PostgreSQL. The initial default is Hive's public HAF Block Explorer endpoint, using documented HAFBE paths such as `/last-synced-block`, `/block-search`, and `/accounts/{account}/operations/comments/{permlink}`; self-hosted HAF remains deferred.
+
+### Hive Network And Broadcast Reliability
+
+HiveLore supports `mainnet` and the Hive Public Testnet. Mainnet uses chain ID `beeab0de00000000000000000000000000000000000000000000000000000000`, address prefix `STM`, and the configured `HIVE_MAINNET_RPC_NODES`. The supported public testnet uses chain ID `18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e`, address prefix `TST`, and `HIVE_TESTNET_RPC_NODES`. The network config is built as one unit with chain ID, node list, HAF/indexer URL, address prefix, custom JSON ID, and transaction expiration policy. Invalid networks, empty node lists, malformed chain IDs, credential-bearing node URLs, and non-HTTPS production nodes fail startup validation. HiveLore never silently falls back between mainnet and testnet.
+
+Backend-controlled broadcasts go through the typed reliability layer in `apps/api/src/lib/hive/broadcast-reliability.ts`. It broadcasts only already-signed transactions, never asks for private keys, and preserves the submitted transaction ID across retries. Transient RPC failures use bounded exponential backoff with jitter and node rotation; permanent transaction rejections such as invalid signatures, insufficient authority, malformed operations, expired transactions, and insufficient Resource Credits fail fast without rotating through every node. Ambiguous outcomes, including a timeout after a node may have accepted a transaction, enter confirmation polling before any retry and retry only the exact same signed transaction when still safe.
+
+An RPC broadcast acknowledgment is not confirmation. For the MVP, "confirmed" means included in a Hive block and located through HAF or a compatible indexing/read-back path; this is weaker than last-irreversible-block finality and is reported as block inclusion. Confirmation verifies the transaction ID, operation index when known, HiveLore operation type, `custom_json` ID, posting signer, world/proposal/decision IDs, and frozen payload hash before persistence. Client-supplied block numbers and timestamps are treated only as lookup hints; PostgreSQL state changes use chain/read-back data. Confirmation time is application time after verification, while blockchain timestamp comes from the block/indexer row.
+
+Successful confirmed broadcasts return a structured result containing the network, transaction ID, block number, operation indexes, blockchain timestamp, confirmation time, confirmation source, sanitized node URL when applicable, and attempt count. Timeouts return an unknown or delayed-confirmation state; they must be reconciled by retrying confirmation for the same transaction ID, not by creating a different transaction.
+
+### Hive Smoke Tests
+
+Testnet smoke test:
+
+1. Set `HIVE_NETWORK=testnet`, `HIVE_TESTNET_CHAIN_ID=18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e`, `HIVE_TESTNET_RPC_NODES=https://testnet.openhive.network`, and a compatible testnet HAF/indexer URL if available.
+2. Use a dedicated public test account with sufficient testnet Resource Credits.
+3. Build a harmless uniquely identifiable HiveLore `custom_json` operation.
+4. Sign non-custodially with Hive Keychain or HiveSigner. Do not paste private keys into the API or logs.
+5. Broadcast the signed transaction through the reliability layer or browser signer, then submit only the transaction ID and optional block/operation hints to the API confirmation endpoint.
+6. Confirm through HAF/indexer read-back and record network, transaction ID, block number, blockchain timestamp, confirmation time, confirmation source, signer, operation type, and read-back link.
+7. Re-run confirmation for the same transaction ID to verify idempotency.
+
+Mainnet smoke test follows the same steps with `HIVE_NETWORK=mainnet`, but must not be run without explicit approval of the account, exact operation, and expected permanence. Prefer a minimal approved `custom_json` smoke operation; never automate or bypass the user's signing approval.
 
 ### Standalone HAF Indexer
 
