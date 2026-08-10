@@ -1,27 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SearchInput } from '@/components/ui/search-input';
-import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api/errors';
-import {
-  listWorlds,
-  type WorldsPagination,
-  type WorldSort,
-  type WorldSummary,
-} from '@/lib/api/worlds';
+import { listWorlds, type WorldsPagination, type WorldSummary } from '@/lib/api/worlds';
 import { cn } from '@/lib/styles';
 import { quickFilters } from '@/lib/worlds/constants';
-
-const sortLabels: Record<WorldSort, string> = {
-  newest: 'Newest',
-  'most-active': 'Most active',
-};
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -35,24 +24,6 @@ function getErrorMessage(error: unknown) {
   return 'Unable to load worlds.';
 }
 
-function getFounderName(world: WorldSummary) {
-  return world.founder.displayName || world.founder.hiveUsername;
-}
-
-function sortWorlds(worlds: WorldSummary[], sort: WorldSort) {
-  return [...worlds].sort((left, right) => {
-    if (sort === 'newest') {
-      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-    }
-
-    if (sort === 'most-active') {
-      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-    }
-
-    return getFounderName(left).localeCompare(getFounderName(right));
-  });
-}
-
 export default function WorldsPage() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +35,6 @@ export default function WorldsPage() {
     total: 0,
   });
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<WorldSort>('most-active');
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
 
   useEffect(() => {
@@ -110,7 +80,6 @@ export default function WorldsPage() {
     };
   }, [activeFilter, page, pagination.pageSize, query]);
 
-  const sortedWorlds = useMemo(() => sortWorlds(worlds, sort), [sort, worlds]);
   const pageCount = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
 
   return (
@@ -140,7 +109,7 @@ export default function WorldsPage() {
 
       <section aria-label="World search and filters" className="space-y-4">
         <Card>
-          <CardContent className="grid items-start gap-4 md:grid-cols-[1fr_15rem]">
+          <CardContent className="grid items-start gap-4">
             <label className="grid gap-2 text-sm font-semibold">
               <span className="min-h-5 leading-5">Search worlds</span>
               <SearchInput
@@ -149,20 +118,6 @@ export default function WorldsPage() {
                 placeholder="Search by title or description"
                 value={query}
               />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold">
-              <span className="min-h-5 leading-5">Sort</span>
-              <Select
-                className="h-12"
-                onChange={(event) => setSort(event.target.value as WorldSort)}
-                value={sort}
-              >
-                {Object.entries(sortLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
             </label>
           </CardContent>
         </Card>
@@ -214,7 +169,7 @@ export default function WorldsPage() {
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {isLoading
                 ? 'Loading worlds...'
-                : `Showing ${sortedWorlds.length} of ${pagination.total} worlds.`}
+                : `Showing ${worlds.length} of ${pagination.total} worlds.`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -240,7 +195,7 @@ export default function WorldsPage() {
           </div>
         </div>
 
-        {!isLoading && sortedWorlds.length === 0 ? (
+        {!isLoading && worlds.length === 0 ? (
           <Card>
             <CardContent>
               <p className="text-sm leading-6 text-muted-foreground">
@@ -251,7 +206,7 @@ export default function WorldsPage() {
         ) : null}
 
         <div className="grid gap-4 lg:grid-cols-3">
-          {sortedWorlds.map((world) => (
+          {worlds.map((world) => (
             <Link
               className="group rounded-panel focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               href={`/worlds/${world.id}`}

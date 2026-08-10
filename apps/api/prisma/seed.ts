@@ -144,6 +144,7 @@ async function main() {
           },
         ],
       },
+      publishedAt: new Date(),
     },
     create: {
       worldId: world.id,
@@ -164,6 +165,7 @@ async function main() {
           },
         ],
       },
+      publishedAt: new Date(),
     },
   });
 

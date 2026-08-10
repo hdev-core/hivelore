@@ -231,6 +231,30 @@ function createDatabase() {
         releaseTransaction();
       }
     },
+    refreshSession: {
+      async findUnique(args: {
+        select: {
+          expiresAt: true;
+          revokedAt: true;
+          userId: true;
+        };
+        where: {
+          id: string;
+        };
+      }) {
+        const userId = args.where.id.replace(/^session-/, '');
+
+        if (userId !== author.id && userId !== otherUser.id) {
+          return null;
+        }
+
+        return {
+          expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+          revokedAt: null,
+          userId,
+        };
+      },
+    },
     contributionDraft: {
       async create(args: { data: Partial<StoredContribution>; include: unknown }) {
         const contribution = createContributionRecord({
