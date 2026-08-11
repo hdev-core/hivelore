@@ -10,6 +10,8 @@ type RequestOptions<TBody = JsonBody> = {
   signal?: AbortSignal | null;
 };
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 function getApiBaseUrl() {
   return env.apiBaseUrl;
 }
@@ -20,6 +22,43 @@ function buildUrl(path: string) {
 
 function hasJsonBody(body: unknown): body is JsonBody {
   return body !== undefined;
+}
+
+function createTimeoutSignal(milliseconds: number) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(milliseconds);
+  }
+
+  const controller = new AbortController();
+  globalThis.setTimeout(() => controller.abort(), milliseconds);
+  return controller.signal;
+}
+
+function combineSignals(signals: AbortSignal[]): AbortSignal {
+  const activeSignals = signals.filter((signal) => !signal.aborted);
+
+  if (activeSignals.length !== signals.length) {
+    const controller = new AbortController();
+    const abortedSignal = signals.find((signal) => signal.aborted);
+    controller.abort(abortedSignal?.reason);
+    return controller.signal;
+  }
+
+  if (activeSignals.length === 1) {
+    return activeSignals[0]!;
+  }
+
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(activeSignals);
+  }
+
+  const controller = new AbortController();
+
+  for (const signal of activeSignals) {
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+
+  return controller.signal;
 }
 
 async function parseJsonResponse<TResponse>(response: Response) {
@@ -71,9 +110,10 @@ async function request<TResponse, TBody = JsonBody>(
     headers,
   };
 
-  if (options.signal) {
-    requestInit.signal = options.signal;
-  }
+  requestInit.signal = combineSignals([
+    createTimeoutSignal(DEFAULT_REQUEST_TIMEOUT_MS),
+    ...(options.signal ? [options.signal] : []),
+  ]);
 
   if (hasJsonBody(options.body)) {
     requestInit.body = JSON.stringify(options.body);

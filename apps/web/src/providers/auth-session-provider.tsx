@@ -23,6 +23,7 @@ const AUTH_SESSION_CHANNEL = 'hivelore-auth-session';
 const AUTH_REFRESH_LOCK = 'hivelore-auth-refresh';
 const AUTH_REFRESH_LOCK_TIMEOUT_MS = 10_000;
 const AUTH_REFRESH_REQUEST_TIMEOUT_MS = 10_000;
+const AUTH_REFRESH_BROADCAST_WAIT_MS = 750;
 
 type AuthSessionContextValue = {
   accessToken: string | null;
@@ -46,11 +47,20 @@ function createTimeoutSignal(milliseconds: number) {
 }
 
 function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === 'AbortError';
+  return (
+    error instanceof DOMException &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  );
 }
 
 function isTerminalRefreshError(error: unknown) {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
 }
 
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
@@ -91,6 +101,23 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       });
     };
 
+    const waitForBroadcastedSession = async () => {
+      await delay(AUTH_REFRESH_BROADCAST_WAIT_MS);
+
+      if (
+        latestSessionRef.current &&
+        latestSessionRef.current.accessToken !== startingAccessToken
+      ) {
+        return latestSessionRef.current;
+      }
+
+      if (latestSessionRef.current && latestSessionRef.current.accessToken === startingAccessToken) {
+        return latestSessionRef.current;
+      }
+
+      throw new Error('Could not acquire the auth refresh lock before it timed out.');
+    };
+
     const refreshWithOptionalLock = async () => {
       if (typeof navigator === 'undefined' || !navigator.locks) {
         return performRefresh();
@@ -104,7 +131,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         );
       } catch (error) {
         if (isAbortError(error)) {
-          return performRefresh();
+          return waitForBroadcastedSession();
         }
 
         throw error;
@@ -182,8 +209,8 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
           setSession(session);
         }
       })
-      .catch(() => {
-        if (isMounted) {
+      .catch((error) => {
+        if (isMounted && isTerminalRefreshError(error)) {
           setAccessToken(null);
           setUser(null);
         }
