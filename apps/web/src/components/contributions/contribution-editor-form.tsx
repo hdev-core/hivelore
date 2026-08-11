@@ -62,11 +62,15 @@ function getPreflightErrorMessage(error: unknown) {
 }
 
 function getRefreshFailureMessage(error: unknown) {
-  if (error instanceof ApiError && error.status === 401) {
+  if (isTerminalRefreshError(error)) {
     return 'Your session expired. Sign in again before saving this contribution.';
   }
 
   return 'Could not refresh your session. Your draft is still on this page; try again before leaving.';
+}
+
+function isTerminalRefreshError(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
 
 function hasMeaningfulText(value: unknown): boolean {
@@ -180,11 +184,7 @@ export function ContributionEditorForm({
             }
           } catch (refreshError) {
             if (!controller.signal.aborted) {
-              setPermissionStatus(
-                refreshError instanceof ApiError && refreshError.status === 401
-                  ? 'reauth'
-                  : 'error',
-              );
+              setPermissionStatus(isTerminalRefreshError(refreshError) ? 'reauth' : 'error');
               setPermissionMessage(getRefreshFailureMessage(refreshError));
             }
           }
@@ -406,6 +406,12 @@ export function ContributionEditorForm({
   }
 
   const shouldShowEditor = permissionStatus === 'allowed' || hasAllowedAccessRef.current;
+  const signInHref = `/login?next=${encodeURIComponent(`/worlds/${worldId}/contribute`)}`;
+  const shouldShowSessionRecovery =
+    hasAllowedAccessRef.current &&
+    !accessToken &&
+    !isSessionLoading &&
+    draft?.status !== 'SUBMITTED';
 
   return (
     <form className="space-y-6" onSubmit={handleSave}>
@@ -461,7 +467,9 @@ export function ContributionEditorForm({
               {permissionStatus === 'reauth' ? (
                 <Link
                   className="inline-flex min-h-10 items-center justify-center rounded-control border border-[var(--hive-red)] bg-[var(--hive-red)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_srgb,var(--hive-red)_88%,black)] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                  href={`/login?next=${encodeURIComponent(`/worlds/${worldId}/contribute`)}`}
+                  href={signInHref}
+                  rel="noreferrer"
+                  target="_blank"
                 >
                   Sign in
                 </Link>
@@ -488,6 +496,26 @@ export function ContributionEditorForm({
 
       {!shouldShowEditor ? null : (
         <>
+          {shouldShowSessionRecovery ? (
+            <Alert variant="danger">
+              <AlertTitle>Sign in again before saving</AlertTitle>
+              <AlertDescription>
+                Your draft is still on this page. Sign in again in a new tab, then return here to
+                save or submit it.
+              </AlertDescription>
+              <div className="mt-3">
+                <Link
+                  className="inline-flex min-h-10 items-center justify-center rounded-control border border-[var(--hive-red)] bg-[var(--hive-red)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_srgb,var(--hive-red)_88%,black)] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  href={signInHref}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </Alert>
+          ) : null}
+
           {draft?.status === 'SUBMITTED' ? (
             <Alert variant="success">
               <AlertTitle>Proposal submitted</AlertTitle>

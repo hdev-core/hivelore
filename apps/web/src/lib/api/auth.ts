@@ -44,8 +44,8 @@ export function verifyAuthChallenge(input: {
   return apiClient.post<AuthSessionResponse>('/auth/verify', input);
 }
 
-export function refreshAuthSession() {
-  return apiClient.post<AuthSessionResponse>('/auth/refresh', {});
+export function refreshAuthSession(options: { signal?: AbortSignal | null } = {}) {
+  return apiClient.post<AuthSessionResponse>('/auth/refresh', {}, options);
 }
 
 export function logoutAuthSession() {

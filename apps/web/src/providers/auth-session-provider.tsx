@@ -21,6 +21,8 @@ import {
 
 const AUTH_SESSION_CHANNEL = 'hivelore-auth-session';
 const AUTH_REFRESH_LOCK = 'hivelore-auth-refresh';
+const AUTH_REFRESH_LOCK_TIMEOUT_MS = 10_000;
+const AUTH_REFRESH_REQUEST_TIMEOUT_MS = 10_000;
 
 type AuthSessionContextValue = {
   accessToken: string | null;
@@ -33,14 +35,22 @@ type AuthSessionContextValue = {
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
 
-let refreshSessionPromise: Promise<AuthSessionResponse> | null = null;
+function createTimeoutSignal(milliseconds: number) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(milliseconds);
+  }
 
-function refreshAuthSessionOnce() {
-  refreshSessionPromise ??= refreshAuthSession().finally(() => {
-    refreshSessionPromise = null;
-  });
+  const controller = new AbortController();
+  window.setTimeout(() => controller.abort(), milliseconds);
+  return controller.signal;
+}
 
-  return refreshSessionPromise;
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function isTerminalRefreshError(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
 
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
@@ -76,16 +86,32 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return latestSessionRef.current;
       }
 
-      return refreshAuthSessionOnce();
+      return refreshAuthSession({
+        signal: createTimeoutSignal(AUTH_REFRESH_REQUEST_TIMEOUT_MS),
+      });
     };
 
-    const lockedRefresh: Promise<AuthSessionResponse> = (
-      typeof navigator !== 'undefined' && navigator.locks
-        ? navigator.locks.request(AUTH_REFRESH_LOCK, async () => performRefresh())
-        : performRefresh()
-    ) as Promise<AuthSessionResponse>;
+    const refreshWithOptionalLock = async () => {
+      if (typeof navigator === 'undefined' || !navigator.locks) {
+        return performRefresh();
+      }
 
-    const refreshPromise = lockedRefresh
+      try {
+        return await navigator.locks.request(
+          AUTH_REFRESH_LOCK,
+          { signal: createTimeoutSignal(AUTH_REFRESH_LOCK_TIMEOUT_MS) },
+          async () => performRefresh(),
+        );
+      } catch (error) {
+        if (isAbortError(error)) {
+          return performRefresh();
+        }
+
+        throw error;
+      }
+    };
+
+    const refreshPromise = refreshWithOptionalLock()
       .then((session) => {
         setSession(session);
         channelRef.current?.postMessage({
@@ -95,7 +121,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return session;
       })
       .catch((error) => {
-        if (error instanceof ApiError && error.status === 401) {
+        if (isTerminalRefreshError(error)) {
           accessTokenRef.current = null;
           latestSessionRef.current = null;
           userRef.current = null;
