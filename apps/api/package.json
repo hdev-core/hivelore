@@ -11,6 +11,7 @@
     "prisma:validate": "prisma validate",
     "prisma:format": "prisma format",
     "prisma:migrate:check:fresh": "node scripts/check-fresh-prisma-migrations.mjs",
+    "prisma:migrate:check:upgrade": "node scripts/check-upgrade-prisma-migrations.mjs",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",

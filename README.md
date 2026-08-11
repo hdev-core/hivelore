@@ -688,6 +688,8 @@ TEST_DATABASE_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres n
 
 The check creates a uniquely named `hivelore_migrate_check_*` database, runs `prisma migrate deploy` twice, compares the deployed schema with `schema.prisma`, generates Prisma Client, runs the development seed, smoke-checks representative tables/enums/constraints/indexes, and drops only the generated disposable database.
 
+CI also validates the upgrade path from `develop` with `npm run db:migrate:check:upgrade`. That job deploys the base branch migration history into a disposable PostgreSQL database, applies the documented `20260718154842_init` recovery when needed, deploys this branch's repaired migrations, checks for schema drift, and drops the disposable database.
+
 ### Seed Behavior
 
 The seed at `apps/api/prisma/seed.ts` is development-only and contains fictional Hive usernames, world content, lore, one lore relationship, one submitted proposal, and an advisory AI report. It does not seed real people, credentials, Hive private keys, real blockchain transactions, or financial payout projections.

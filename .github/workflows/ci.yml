@@ -62,6 +62,16 @@ jobs:
         env:
           TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
 
+      - name: Check PostgreSQL migration upgrade from develop
+        run: |
+          git fetch origin develop --depth=1
+          mkdir -p /tmp/hivelore-develop
+          git archive origin/develop apps/api/prisma | tar -x -C /tmp/hivelore-develop
+          npm run db:migrate:check:upgrade
+        env:
+          TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          TEST_DATABASE_BASE_PRISMA_SCHEMA: /tmp/hivelore-develop/apps/api/prisma/schema.prisma
+
       - name: Type-check
         run: npm run typecheck
 
