@@ -752,7 +752,7 @@ model IndexerWatermark {
   updatedAt                   DateTime  @updatedAt
   /// Durable resume point for rebuildable indexer processes.
 
-  @@index([lastProcessedBlock, lastProcessedOperationIndex])
+  @@index([lastProcessedBlock, lastProcessedOperationIndex], map: "IndexerWatermark_lastProcessedBlock_lastProcessedOperationI_idx")
 }
 
 model RewardRecord {
