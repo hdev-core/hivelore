@@ -36,7 +36,7 @@ function authHeader(userId = founder.id) {
       hiveUsername: founder.hiveUsername,
       normalizedHiveUsername: founder.normalizedHiveUsername,
       platformRole: PlatformRole.USER,
-      sid: 'session-1',
+      sid: `session-${userId}`,
       sub: userId,
     },
     {
@@ -178,6 +178,17 @@ function createDatabase() {
             proposal.worldId === args.where.worldId &&
             args.where.status.in.includes(proposal.status),
         ).length;
+      },
+    },
+    refreshSession: {
+      async findUnique(args: { where: { id: string } }) {
+        const userId = args.where.id.replace(/^session-/, '');
+
+        return {
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          revokedAt: null,
+          userId,
+        };
       },
     },
     world: {

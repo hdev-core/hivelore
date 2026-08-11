@@ -417,6 +417,17 @@ function createDatabase() {
         return proposal;
       },
     },
+    refreshSession: {
+      async findUnique(args: { where: { id: string } }) {
+        const userId = args.where.id.replace(/^session-/, '');
+
+        return {
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          revokedAt: null,
+          userId,
+        };
+      },
+    },
     world: {
       async findUnique(args: { where: { id: string } }) {
         return worlds.find((world) => world.id === args.where.id) ?? null;
