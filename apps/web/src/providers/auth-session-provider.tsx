@@ -48,8 +48,7 @@ function createTimeoutSignal(milliseconds: number) {
 
 function isAbortError(error: unknown) {
   return (
-    error instanceof DOMException &&
-    (error.name === 'AbortError' || error.name === 'TimeoutError')
+    error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
   );
 }
 
@@ -111,7 +110,10 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return latestSessionRef.current;
       }
 
-      if (latestSessionRef.current && latestSessionRef.current.accessToken === startingAccessToken) {
+      if (
+        latestSessionRef.current &&
+        latestSessionRef.current.accessToken === startingAccessToken
+      ) {
         return latestSessionRef.current;
       }
 
