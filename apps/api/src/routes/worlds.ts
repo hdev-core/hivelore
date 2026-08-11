@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { authenticateRequest, requireSession } from '../lib/auth-middleware.js';
+import type { SessionVerificationDatabase } from '../lib/auth-sessions.js';
 import { prisma } from '../lib/prisma.js';
 import {
   createWorld,
@@ -195,10 +196,10 @@ const listWorldsSchema = z.object({
 });
 
 type RegisterWorldRoutesOptions = {
-  database?: WorldDatabase & WorldMembershipLookup;
+  database?: WorldDatabase & WorldMembershipLookup & SessionVerificationDatabase;
 };
 
-function authOptions(database: WorldDatabase) {
+function authOptions(database: SessionVerificationDatabase) {
   return {
     audience: env.AUTH_JWT_AUDIENCE,
     database,

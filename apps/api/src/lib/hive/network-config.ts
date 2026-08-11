@@ -157,7 +157,7 @@ function validateChainId(chainId: string) {
     throw new Error('Hive chain ID must be a 64-character hex string.');
   }
 
-  if (!chainId.toLowerCase().startsWith('beeab0de')) {
+  if (chainId.toLowerCase() !== HIVE_MAINNET_CHAIN_ID) {
     throw new Error('Hive chain ID must be the mainnet chain ID.');
   }
 }

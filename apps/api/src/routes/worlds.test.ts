@@ -275,6 +275,17 @@ function createDatabase() {
         ).length;
       },
     },
+    refreshSession: {
+      async findUnique(args: { where: { id: string } }) {
+        const userId = args.where.id.replace(/^session-/, '');
+
+        return {
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          revokedAt: null,
+          userId,
+        };
+      },
+    },
     world: {
       async count(args?: { where?: Parameters<typeof matchesWorldWhere>[1] }) {
         return worlds.filter((world) => matchesWorldWhere(world, args?.where)).length;
@@ -494,19 +505,6 @@ function createDatabase() {
         });
 
         return seed;
-      },
-    },
-    refreshSession: {
-      async findUnique(args: { where: { id: string } }) {
-        if (!args.where.id.startsWith('session-')) {
-          return null;
-        }
-
-        return {
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-          revokedAt: null,
-          userId: args.where.id.replace('session-', ''),
-        };
       },
     },
   };

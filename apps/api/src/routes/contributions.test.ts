@@ -422,11 +422,12 @@ function createDatabase() {
         if (!args.where.id.startsWith('session-')) {
           return null;
         }
+        const userId = args.where.id.replace(/^session-/, '');
 
         return {
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           revokedAt: null,
-          userId: args.where.id.replace('session-', ''),
+          userId,
         };
       },
     },

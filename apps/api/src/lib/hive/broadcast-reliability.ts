@@ -56,6 +56,11 @@ export class HiveBroadcastError extends Error {
 
 export interface HiveBroadcastTransport {
   broadcast(nodeUrl: string, transaction: ApiTransaction, signal?: AbortSignal): Promise<void>;
+  getTransaction?(params: {
+    transactionId: string;
+    nodeUrl?: string;
+    signal?: AbortSignal;
+  }): Promise<HafOperationRow[] | null>;
   searchBlocks(params: {
     fromBlock?: number;
     toBlock?: number;
@@ -127,6 +132,61 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
     );
 
     return client.getHeadBlock(signal);
+  }
+
+  async getTransaction(params: {
+    transactionId: string;
+    nodeUrl?: string;
+    signal?: AbortSignal;
+  }): Promise<HafOperationRow[] | null> {
+    const nodeUrl = params.nodeUrl ?? this.network.rpcNodes[0];
+
+    if (!nodeUrl) {
+      throw new HiveBroadcastError(
+        'NETWORK_CONFIGURATION_ERROR',
+        'No Hive RPC nodes are configured for transaction lookup.',
+        'permanent',
+      );
+    }
+
+    const response = await fetch(nodeUrl, {
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'condenser_api.get_transaction',
+        params: [params.transactionId],
+      }),
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+      signal: createTimeoutSignal(DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs, params.signal),
+    });
+
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(`Hive transaction lookup failed: ${response.status} ${response.statusText}`),
+        { status: response.status },
+      );
+    }
+
+    const body = (await response.json()) as {
+      error?: { message?: string };
+      result?: unknown;
+    };
+
+    if (body.error) {
+      const message = body.error.message ?? 'Hive transaction lookup failed.';
+
+      if (message.toLowerCase().includes('unknown transaction')) {
+        return null;
+      }
+
+      throw new Error(message);
+    }
+
+    return transactionLookupToRows(body.result, params.transactionId);
   }
 }
 
@@ -499,6 +559,33 @@ export async function pollForConfirmedOperation(input: {
     const nodeUrl = input.nodePool?.current();
 
     try {
+      if (input.transport.getTransaction) {
+        const transactionRows = await input.transport.getTransaction({
+          ...(nodeUrl ? { nodeUrl } : {}),
+          ...(input.input.signal ? { signal: input.input.signal } : {}),
+          transactionId: input.input.transactionId,
+        });
+
+        if (transactionRows) {
+          const confirmed = findAndVerifyOperation(transactionRows, input.input);
+
+          if (confirmed) {
+            if (nodeUrl) {
+              input.nodePool?.reportSuccess(nodeUrl);
+            }
+
+            return confirmed;
+          }
+        }
+
+        if (nodeUrl) {
+          input.nodePool?.reportSuccess(nodeUrl);
+        }
+
+        await input.clock.sleep(input.pollIntervalMs, input.input.signal);
+        continue;
+      }
+
       const head = fromBlock
         ? fromBlock
         : await input.transport.getHeadBlock(nodeUrl, input.input.signal);
@@ -649,6 +736,61 @@ function normalizeSearchPage(
   return Array.isArray(page) ? { operations: page } : page;
 }
 
+function transactionLookupToRows(result: unknown, transactionId: string): HafOperationRow[] | null {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+
+  const transaction = result as {
+    block_num?: number | string;
+    blockNumber?: number | string;
+    block?: number | string;
+    expiration?: string;
+    operations?: unknown;
+    timestamp?: string;
+    block_time?: string;
+    transaction_id?: string;
+    transactionId?: string;
+    trx_id?: string;
+  };
+
+  if (!Array.isArray(transaction.operations)) {
+    return [];
+  }
+
+  const resolvedTransactionId =
+    transaction.transaction_id ?? transaction.transactionId ?? transaction.trx_id ?? transactionId;
+  const timestamp = transaction.timestamp ?? transaction.block_time ?? transaction.expiration;
+
+  return transaction.operations.map((operationValue, index) => {
+    const blockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
+
+    return {
+      ...(blockNumber === undefined ? {} : { block_num: blockNumber }),
+      operation: normalizeCondenserOperation(operationValue),
+      operation_id: index,
+      ...(timestamp === undefined ? {} : { timestamp }),
+      transaction_id: resolvedTransactionId,
+    };
+  });
+}
+
+function normalizeCondenserOperation(operationValue: unknown): unknown {
+  if (Array.isArray(operationValue) && operationValue.length >= 2) {
+    const [type, value] = operationValue;
+
+    if (type === 'comment') {
+      return { comment_operation: value };
+    }
+
+    if (type === 'custom_json') {
+      return { custom_json_operation: value };
+    }
+  }
+
+  return operationValue;
+}
+
 function rowMatchesTransaction(row: HafOperationRow, transactionId: string) {
   return (row.transaction_id ?? row.transactionId ?? row.trx_id) === transactionId;
 }
@@ -672,6 +814,30 @@ function throwIfAborted(signal: AbortSignal | undefined) {
       'unknown',
     );
   }
+}
+
+function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (parentSignal?.aborted) {
+    clearTimeout(timeout);
+    controller.abort();
+    return controller.signal;
+  }
+
+  parentSignal?.addEventListener(
+    'abort',
+    () => {
+      clearTimeout(timeout);
+      controller.abort();
+    },
+    { once: true },
+  );
+
+  controller.signal.addEventListener('abort', () => clearTimeout(timeout), { once: true });
+
+  return controller.signal;
 }
 
 const systemClock = {
