@@ -12,7 +12,9 @@ enum LoreType {
   CHARACTER
   LOCATION
   FACTION
+  QUEST
   EVENT
+  STORY
   ARTIFACT
   HISTORY
   RULE
@@ -29,8 +31,19 @@ enum LoreStatus {
 
 enum ProposalType {
   ADD_LORE
+  ADD_STORY
   UPDATE_LORE
   UPDATE_WORLD_BIBLE
+}
+
+enum ContributionKind {
+  LORE
+  STORY
+}
+
+enum ContributionStatus {
+  DRAFT
+  SUBMITTED
 }
 
 enum ProposalStatus {
@@ -129,6 +142,16 @@ enum WorldAuditAction {
   MODERATION_ACTION
   CANON_STATUS_EXECUTED
   AI_WARNING_RESOLVED
+  CONTRIBUTION_CREATED
+  CONTRIBUTION_UPDATED
+  CONTRIBUTION_DELETED
+  CONTRIBUTION_SUBMITTED
+  PROPOSAL_CREATED
+  LORE_ENTRY_CREATED
+  LORE_ENTRY_UPDATED
+  LORE_ENTRY_DELETED
+  LORE_RELATIONSHIP_CREATED
+  LORE_RELATIONSHIP_DELETED
 }
 
 enum AuthProvider {
@@ -168,6 +191,7 @@ model User {
   bibleVersions           WorldBibleVersion[]       @relation("WorldBibleVersionCreator")
   loreEntries             LoreEntry[]               @relation("LoreEntryAuthor")
   proposals               Proposal[]                @relation("ProposalAuthor")
+  contributionDrafts      ContributionDraft[]       @relation("ContributionDraftAuthor")
   votes                   AppVote[]                 @relation("AppVoteVoter")
   moderationReports       ModerationReport[]        @relation("ModerationReporter")
   moderationReviews       ModerationReport[]        @relation("ModerationReviewer")
@@ -296,25 +320,47 @@ model RcDelegation {
 }
 
 model World {
-  id                String              @id @default(cuid())
-  slug              String              @unique
-  title             String
-  description       String
-  founderId         String
-  founder           User                @relation("WorldFounder", fields: [founderId], references: [id], onDelete: Restrict)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  bibleVersions     WorldBibleVersion[]
-  loreEntries       LoreEntry[]
-  loreRelationships LoreRelationship[]
-  proposals         Proposal[]
-  moderationReports ModerationReport[]
-  searchIndexes     SearchIndex[]
-  memberships       WorldMembership[]
-  auditLogs         WorldAuditLog[]
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  title              String
+  description        String
+  founderId          String
+  founder            User                @relation("WorldFounder", fields: [founderId], references: [id], onDelete: Restrict)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  seed               WorldSeed?
+  bibleVersions      WorldBibleVersion[]
+  loreEntries        LoreEntry[]
+  loreRelationships  LoreRelationship[]
+  proposals          Proposal[]
+  contributionDrafts ContributionDraft[]
+  moderationReports  ModerationReport[]
+  searchIndexes      SearchIndex[]
+  memberships        WorldMembership[]
+  auditLogs          WorldAuditLog[]
 
   @@index([founderId])
   @@index([createdAt])
+}
+
+model WorldSeed {
+  id                   String   @id @default(cuid())
+  worldId              String   @unique
+  world                World    @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  premise              String
+  genre                String
+  tone                 String
+  mainConflict         String
+  startingLocation     String?
+  firstCharacters      Json?
+  firstFactions        Json?
+  firstHistoricalEvent String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  /// Mutable off-chain world seed. Hive publication requires a future approved publication flow.
+
+  @@index([genre])
+  @@index([tone])
 }
 
 model WorldMembership {
@@ -380,30 +426,32 @@ model WorldBibleVersion {
 }
 
 model LoreEntry {
-  id                 String             @id @default(cuid())
-  worldId            String
-  world              World              @relation(fields: [worldId], references: [id], onDelete: Restrict)
-  authorId           String
-  author             User               @relation("LoreEntryAuthor", fields: [authorId], references: [id], onDelete: Restrict)
-  title              String
-  slug               String
-  loreType           LoreType
-  content            Json
-  status             LoreStatus         @default(DRAFT)
-  publishedAt        DateTime?
-  hiveReferenceId    String?            @unique
+  id                       String              @id @default(cuid())
+  worldId                  String
+  world                    World               @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  authorId                 String
+  author                   User                @relation("LoreEntryAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  title                    String
+  slug                     String
+  loreType                 LoreType
+  content                  Json
+  status                   LoreStatus          @default(DRAFT)
+  publishedAt              DateTime?
+  hiveReferenceId          String?             @unique
   /// Published canon must be confirmed through an indexed HiveReference, not only this mutable row.
-  hiveReference      HiveReference?     @relation(fields: [hiveReferenceId], references: [id], onDelete: SetNull)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  outgoingRelations  LoreRelationship[] @relation("LoreRelationshipSource")
-  incomingRelations  LoreRelationship[] @relation("LoreRelationshipTarget")
-  targetProposals    Proposal[]         @relation("ProposalTargetLoreEntry")
-  resultingProposals Proposal[]         @relation("ProposalResultingLoreEntry")
+  hiveReference            HiveReference?      @relation(fields: [hiveReferenceId], references: [id], onDelete: SetNull)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  outgoingRelations        LoreRelationship[]  @relation("LoreRelationshipSource")
+  incomingRelations        LoreRelationship[]  @relation("LoreRelationshipTarget")
+  targetProposals          Proposal[]          @relation("ProposalTargetLoreEntry")
+  targetContributionDrafts ContributionDraft[] @relation("ContributionDraftTargetLoreEntry")
+  resultingProposals       Proposal[]          @relation("ProposalResultingLoreEntry")
 
   @@unique([worldId, slug])
   @@index([worldId, status])
   @@index([worldId, loreType])
+  @@index([worldId, updatedAt, id])
   @@index([authorId])
 }
 
@@ -425,6 +473,8 @@ model LoreRelationship {
   @@index([worldId])
   @@index([sourceId])
   @@index([targetId])
+  @@index([sourceId, updatedAt, id])
+  @@index([targetId, updatedAt, id])
 }
 
 model Proposal {
@@ -434,6 +484,7 @@ model Proposal {
   authorId                String
   author                  User               @relation("ProposalAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   proposalType            ProposalType
+  contributionKind        ContributionKind?
   status                  ProposalStatus     @default(DRAFT)
   title                   String
   summary                 String
@@ -451,12 +502,41 @@ model Proposal {
   publishedAt             DateTime?
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
+  contributionDraft       ContributionDraft?
   votes                   AppVote[]
   aiReports               AIReport[]
   moderationReports       ModerationReport[]
 
   @@index([worldId, status])
   @@index([authorId])
+  @@index([worldId, contributionKind])
+  @@index([targetLoreEntryId])
+}
+
+model ContributionDraft {
+  id                String             @id @default(cuid())
+  worldId           String
+  world             World              @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  authorId          String
+  author            User               @relation("ContributionDraftAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  targetLoreEntryId String?
+  targetLoreEntry   LoreEntry?         @relation("ContributionDraftTargetLoreEntry", fields: [targetLoreEntryId], references: [id], onDelete: SetNull)
+  kind              ContributionKind
+  title             String
+  summary           String?
+  content           Json
+  status            ContributionStatus @default(DRAFT)
+  proposalId        String?            @unique
+  /// Submitted drafts are locked; Proposal.proposedContent stores the immutable reviewer snapshot.
+  proposal          Proposal?          @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  submittedAt       DateTime?
+
+  @@index([worldId])
+  @@index([authorId])
+  @@index([worldId, status])
+  @@index([worldId, authorId, status])
   @@index([targetLoreEntryId])
 }
 

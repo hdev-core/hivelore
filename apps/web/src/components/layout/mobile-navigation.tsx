@@ -9,59 +9,84 @@ import { SearchInput } from '@/components/ui/search-input';
 
 export function MobileNavigation() {
   const [isOpen, setIsOpen] = useState(false);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
 
-    closeButtonRef.current?.focus();
-
+    const menuButton = menuButtonRef.current;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsOpen(false);
       }
     };
 
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown, true);
+      menuButton?.focus();
+    };
   }, [isOpen]);
 
   return (
-    <div className="md:hidden">
+    <div className="relative z-[90] ml-auto flex items-center gap-2 md:hidden">
+      <div className="relative z-[90]">
+        <ThemeSwitcher />
+      </div>
       <Button
+        ref={menuButtonRef}
         aria-controls="mobile-navigation"
         aria-expanded={isOpen}
-        aria-label="Open navigation menu"
-        className="px-3"
-        onClick={() => setIsOpen(true)}
+        aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'}
+        className="relative z-[90] h-10 w-10 px-0"
+        onClick={() => setIsOpen((current) => !current)}
         variant="outline"
       >
-        Menu
+        <span className="sr-only">{isOpen ? 'Close menu' : 'Open menu'}</span>
+        {isOpen ? (
+          <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
+            <path
+              d="m6 6 12 12M18 6 6 18"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="2"
+            />
+          </svg>
+        ) : (
+          <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
+            <path
+              d="M4 7h16M4 12h16M4 17h16"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="2"
+            />
+          </svg>
+        )}
       </Button>
 
       {isOpen ? (
-        <div
-          aria-modal="true"
-          className="fixed inset-0 z-50 bg-background/95 p-4 backdrop-blur"
-          onKeyDownCapture={(event) => {
-            if (event.key === 'Escape') {
-              setIsOpen(false);
-            }
-          }}
-          role="dialog"
-        >
-          <div className="mx-auto flex max-w-sm flex-col gap-5 rounded-panel border border-border bg-surface p-4 shadow-elevated">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-foreground">Navigation</p>
-              <Button
-                ref={closeButtonRef}
-                aria-label="Close navigation menu"
-                onClick={() => setIsOpen(false)}
-                variant="ghost"
-              >
-                Close
-              </Button>
-            </div>
+        <>
+          <button
+            aria-label="Close navigation menu"
+            className="mobile-navigation-backdrop motion-safe:animate-[mobile-overlay-in_160ms_ease-out]"
+            onClick={() => setIsOpen(false)}
+            type="button"
+          />
+          <div
+            aria-modal="true"
+            className="mobile-navigation-panel motion-safe:animate-[mobile-menu-in_180ms_ease-out]"
+            onKeyDownCapture={(event) => {
+              if (event.key === 'Escape') {
+                setIsOpen(false);
+              }
+            }}
+            role="dialog"
+          >
             <nav aria-label="Mobile primary navigation" id="mobile-navigation">
               <ul className="grid gap-2">
                 {navigationLinks.map((link) => (
@@ -83,7 +108,6 @@ export function MobileNavigation() {
                 disabled
                 placeholder="Search coming soon"
               />
-              <ThemeSwitcher />
               <Link
                 className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground shadow-soft transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 href="/login"
@@ -93,7 +117,7 @@ export function MobileNavigation() {
               </Link>
             </div>
           </div>
-        </div>
+        </>
       ) : null}
     </div>
   );
