@@ -80,17 +80,17 @@ describe('canon voting policy', () => {
     );
   });
 
-  test('zero approve plus reject denominator produces zero percent instead of NaN', () => {
+  test('zero approve produces zero percent instead of NaN', () => {
     const tally = tallyCanonVotes(
       votes(VoteChoice.NEEDS_REVISION, VoteChoice.NEEDS_REVISION, VoteChoice.ALTERNATE_TIMELINE),
     );
 
     assert.equal(tally.totalVotes, 3);
-    assert.equal(tally.approvalDenominator, 0);
+    assert.equal(tally.approvalDenominator, 3);
     assert.equal(tally.approvalPercentageBps, 0);
   });
 
-  test('revision and alternate votes count toward participation but not approval denominator', () => {
+  test('revision and alternate votes count toward participation and approval denominator', () => {
     const tally = tallyCanonVotes(
       votes(
         VoteChoice.APPROVE,
@@ -102,9 +102,29 @@ describe('canon voting policy', () => {
     );
 
     assert.equal(tally.totalVotes, 5);
-    assert.equal(tally.approvalDenominator, 2);
+    assert.equal(tally.approvalDenominator, 5);
     assert.equal(tally.approvalNumerator, 1);
-    assert.equal(tally.approvalPercentageBps, 5_000);
+    assert.equal(tally.approvalPercentageBps, 2_000);
+  });
+
+  test('constructive dissent prevents approval instead of disappearing from the denominator', () => {
+    const tally = tallyCanonVotes(
+      votes(
+        VoteChoice.APPROVE,
+        VoteChoice.NEEDS_REVISION,
+        VoteChoice.NEEDS_REVISION,
+        VoteChoice.NEEDS_REVISION,
+        VoteChoice.NEEDS_REVISION,
+      ),
+    );
+
+    assert.equal(tally.totalVotes, 5);
+    assert.equal(tally.approvalDenominator, 5);
+    assert.equal(tally.approvalPercentageBps, 2_000);
+    assert.equal(
+      decideCanonOutcome({ now: afterEnd, tally, votingEndsAt }),
+      ProposalDecisionOutcome.NEEDS_REVISION,
+    );
   });
 
   test('uses deterministic failed-outcome plurality with stable tie order', () => {

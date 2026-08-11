@@ -112,6 +112,24 @@ function proposalCommentRateLimitOptions(database: typeof prisma) {
   };
 }
 
+function canonTransactionConfirmRateLimitOptions(database: typeof prisma) {
+  return {
+    cache: env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE,
+    errorResponseBuilder: () => ({
+      code: 'CANON_TRANSACTION_CONFIRM_RATE_LIMITED',
+      error: 'Too many canon transaction confirmations. Try again later.',
+      statusCode: 429,
+    }),
+    keyGenerator: async (request: FastifyRequest) => {
+      const user = await authenticateRequest(request, authOptions(database));
+
+      return user ? `canon-confirm:user:${user.id}` : `canon-confirm:ip:${request.ip}`;
+    },
+    max: 3,
+    timeWindow: '60 seconds',
+  };
+}
+
 export async function registerProposalRoutes(
   app: FastifyInstance,
   options: RegisterProposalRoutesOptions = {},
@@ -158,7 +176,7 @@ export async function registerProposalRoutes(
     }
 
     try {
-      return getVoteSummary(database, params.data);
+      return await getVoteSummary(database, params.data);
     } catch (error) {
       return handleCanonVotingError(error, reply);
     }
@@ -176,7 +194,7 @@ export async function registerProposalRoutes(
     }
 
     try {
-      return listProposalComments(database, {
+      return await listProposalComments(database, {
         cursor: query.data.cursor,
         pageSize: query.data.pageSize,
         proposalId: params.data.proposalId,
@@ -262,7 +280,7 @@ export async function registerProposalRoutes(
       }
 
       try {
-        return castCanonVote(database, {
+        return await castCanonVote(database, {
           choice: body.data.choice,
           proposalId: params.data.proposalId,
           voterId: request.user.id,
@@ -302,7 +320,7 @@ export async function registerProposalRoutes(
       }
 
       try {
-        return acknowledgeProposalAiWarning(database, {
+        return await acknowledgeProposalAiWarning(database, {
           actorId: request.user.id,
           proposalId: params.data.proposalId,
           worldId: params.data.worldId,
@@ -341,7 +359,7 @@ export async function registerProposalRoutes(
       }
 
       try {
-        return finalizeCanonDecision(database, {
+        return await finalizeCanonDecision(database, {
           actorId: request.user.id,
           proposalId: params.data.proposalId,
           worldId: params.data.worldId,
@@ -374,8 +392,20 @@ export async function registerProposalRoutes(
         });
       }
 
+      const authorized = await authorizeWorldPermission(
+        request,
+        reply,
+        params.data.worldId,
+        WORLD_PERMISSIONS.SUBMIT_PROPOSAL,
+        database,
+      );
+
+      if (!authorized) {
+        return;
+      }
+
       try {
-        return createCanonTransactionOperation(database, {
+        return await createCanonTransactionOperation(database, {
           proposalId: params.data.proposalId,
           signerId: request.user.id,
           worldId: params.data.worldId,
@@ -389,7 +419,10 @@ export async function registerProposalRoutes(
   app.post(
     '/worlds/:worldId/proposals/:proposalId/canon-transaction/confirm',
     {
-      preHandler: requireSession(authOptions(database)),
+      preHandler: [
+        app.rateLimit(canonTransactionConfirmRateLimitOptions(database)),
+        requireSession(authOptions(database)),
+      ],
     },
     async (request, reply) => {
       const params = paramsSchema.safeParse(request.params);
@@ -409,8 +442,20 @@ export async function registerProposalRoutes(
         });
       }
 
+      const authorized = await authorizeWorldPermission(
+        request,
+        reply,
+        params.data.worldId,
+        WORLD_PERMISSIONS.SUBMIT_PROPOSAL,
+        database,
+      );
+
+      if (!authorized) {
+        return;
+      }
+
       try {
-        return confirmCanonTransaction(database, {
+        return await confirmCanonTransaction(database, {
           ...body.data,
           hafClient,
           hiveBroadcaster,

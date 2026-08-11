@@ -21,7 +21,6 @@ import type { HafOperationRow } from './types.js';
 const network = buildHiveNetworkConfig({
   customJsonId: 'hivelore',
   mainnetRpcNodes: 'https://node-a.test,https://node-b.test',
-  network: 'mainnet',
   nodeEnv: 'test',
 });
 

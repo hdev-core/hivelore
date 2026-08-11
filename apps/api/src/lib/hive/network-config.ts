@@ -1,19 +1,13 @@
-import {
-  DEFAULT_HAF_API_URL,
-  DEFAULT_HIVE_RPC_URL,
-  DEFAULT_HIVE_TESTNET_RPC_URL,
-  HIVE_MAINNET_CHAIN_ID,
-  HIVE_PUBLIC_TESTNET_CHAIN_ID,
-} from './constants.js';
+import { DEFAULT_HAF_API_URL, DEFAULT_HIVE_RPC_URL, HIVE_MAINNET_CHAIN_ID } from './constants.js';
 
-export type HiveNetworkName = 'mainnet' | 'testnet';
+export type HiveNetworkName = 'mainnet';
 
 export interface HiveNetworkConfig {
   name: HiveNetworkName;
   chainId: string;
   rpcNodes: string[];
   hafUrl?: string | undefined;
-  addressPrefix: 'STM' | 'TST';
+  addressPrefix: 'STM';
   customJsonId: string;
   transactionExpirationMinutes: number;
   explorerTransactionUrl?: string | undefined;
@@ -44,45 +38,31 @@ export const DEFAULT_HIVE_RETRY_CONFIG: HiveRetryConfig = {
   maxDelayMs: 5_000,
   nodeCooldownMs: 30_000,
   requestTimeoutMs: 10_000,
-  totalDeadlineMs: 30_000,
+  totalDeadlineMs: 90_000,
 };
 
 export function buildHiveNetworkConfig(input: {
-  network: HiveNetworkName;
   mainnetChainId?: string | undefined;
   mainnetRpcNodes?: string | undefined;
   mainnetHafUrl?: string | undefined;
-  testnetChainId?: string | undefined;
-  testnetRpcNodes?: string | undefined;
-  testnetHafUrl?: string | undefined;
   customJsonId: string;
   nodeEnv?: string | undefined;
 }): HiveNetworkConfig {
-  const isTestnet = input.network === 'testnet';
-  const chainId = isTestnet
-    ? input.testnetChainId || HIVE_PUBLIC_TESTNET_CHAIN_ID
-    : input.mainnetChainId || HIVE_MAINNET_CHAIN_ID;
-  const rpcNodes = parseNodeList(
-    isTestnet
-      ? input.testnetRpcNodes || DEFAULT_HIVE_TESTNET_RPC_URL
-      : input.mainnetRpcNodes || DEFAULT_HIVE_RPC_URL,
-    input.nodeEnv,
-  );
-  const hafUrl = isTestnet ? input.testnetHafUrl : input.mainnetHafUrl || DEFAULT_HAF_API_URL;
+  const chainId = input.mainnetChainId || HIVE_MAINNET_CHAIN_ID;
+  const rpcNodes = parseNodeList(input.mainnetRpcNodes || DEFAULT_HIVE_RPC_URL, input.nodeEnv);
+  const hafUrl = input.mainnetHafUrl || DEFAULT_HAF_API_URL;
 
   validateChainId(chainId);
 
   return {
-    addressPrefix: isTestnet ? 'TST' : 'STM',
+    addressPrefix: 'STM',
     chainId,
     customJsonId: input.customJsonId,
-    explorerTransactionUrl: isTestnet
-      ? 'https://testnet.openhive.network/tx/{transactionId}'
-      : 'https://hiveblocks.com/tx/{transactionId}',
+    explorerTransactionUrl: 'https://hiveblocks.com/tx/{transactionId}',
     hafUrl: hafUrl || undefined,
-    name: input.network,
+    name: 'mainnet',
     rpcNodes,
-    transactionExpirationMinutes: isTestnet ? 60 : 10,
+    transactionExpirationMinutes: 10,
   };
 }
 
@@ -153,6 +133,10 @@ export function validateHiveRetryConfig(config: HiveRetryConfig): HiveRetryConfi
     throw new Error('HIVE_BROADCAST_TOTAL_DEADLINE_MS must be >= request timeout.');
   }
 
+  if (config.totalDeadlineMs < config.confirmationTimeoutMs) {
+    throw new Error('HIVE_BROADCAST_TOTAL_DEADLINE_MS must be >= confirmation timeout.');
+  }
+
   return config;
 }
 
@@ -171,5 +155,9 @@ export function sanitizeHiveNodeUrl(nodeUrl: string): string {
 function validateChainId(chainId: string) {
   if (!/^[a-f0-9]{64}$/i.test(chainId)) {
     throw new Error('Hive chain ID must be a 64-character hex string.');
+  }
+
+  if (!chainId.toLowerCase().startsWith('beeab0de')) {
+    throw new Error('Hive chain ID must be the mainnet chain ID.');
   }
 }

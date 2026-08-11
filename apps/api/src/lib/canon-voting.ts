@@ -814,6 +814,14 @@ export async function createCanonTransactionOperation(
     );
   }
 
+  if (proposal.decision.transactionId || proposal.decision.operationIndex !== null) {
+    throw new CanonVotingError(
+      409,
+      'DECISION_ALREADY_CONFIRMED',
+      'Proposal decision is already linked to a Hive operation.',
+    );
+  }
+
   if (proposal.authorId !== input.signerId) {
     throw new CanonVotingError(
       403,
@@ -1072,7 +1080,7 @@ export async function confirmCanonTransaction(
       },
     });
 
-    const confirmedDecision = await transaction.proposalDecision.update({
+    const claim = await transaction.proposalDecision.updateMany({
       data: {
         blockchainTimestamp: operation.blockchainTimestamp,
         blockNumber: operation.blockNumber,
@@ -1082,6 +1090,38 @@ export async function confirmCanonTransaction(
         operationIndex: operation.operationIndex,
         transactionId: operation.transactionId,
       },
+      where: {
+        id: currentDecision.id,
+        operationIndex: null,
+        transactionId: null,
+      },
+    });
+
+    if (claim.count === 0) {
+      const linkedDecision = await transaction.proposalDecision.findUnique({
+        where: {
+          id: currentDecision.id,
+        },
+      });
+
+      if (
+        linkedDecision?.transactionId === operation.transactionId &&
+        linkedDecision.operationIndex === operation.operationIndex
+      ) {
+        return {
+          decision: serializeDecision(linkedDecision),
+          idempotent: true,
+        };
+      }
+
+      throw new CanonVotingError(
+        409,
+        'DECISION_ALREADY_CONFIRMED',
+        'Proposal decision is already linked to a different Hive operation.',
+      );
+    }
+
+    const confirmedDecision = await transaction.proposalDecision.findUniqueOrThrow({
       where: {
         id: currentDecision.id,
       },

@@ -5,6 +5,7 @@ import { verifyHiveLoreOperation } from './verification.js';
 import { normalizeHafOperation } from './projection.js';
 import { HafClient } from './haf-client.js';
 import { HiveWaxClient } from './wax-client.js';
+import { HIVE_CUSTOM_JSON_OPERATION_TYPE } from './constants.js';
 import {
   DEFAULT_HIVE_RETRY_CONFIG,
   type HiveNetworkConfig,
@@ -60,6 +61,7 @@ export interface HiveBroadcastTransport {
     toBlock?: number;
     page?: number;
     pageSize?: number;
+    operationTypes?: number[];
     nodeUrl?: string;
     signal?: AbortSignal;
   }): Promise<HafOperationRow[] | { operations: HafOperationRow[]; totalPages?: number }>;
@@ -93,20 +95,38 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
     toBlock?: number;
     page?: number;
     pageSize?: number;
+    operationTypes?: number[];
+    signal?: AbortSignal;
   }) {
-    const client = new HafClient(this.network.hafUrl ? { baseUrl: this.network.hafUrl } : {});
+    const client = new HafClient(
+      this.network.hafUrl
+        ? {
+            baseUrl: this.network.hafUrl,
+            requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs,
+          }
+        : { requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs },
+    );
     return client.searchBlocks({
       ...(params.fromBlock === undefined ? {} : { fromBlock: params.fromBlock }),
+      ...(params.operationTypes === undefined ? {} : { operationTypes: params.operationTypes }),
       ...(params.page === undefined ? {} : { page: params.page }),
       ...(params.pageSize === undefined ? {} : { pageSize: params.pageSize }),
       ...(params.toBlock === undefined ? {} : { toBlock: params.toBlock }),
+      ...(params.signal ? { signal: params.signal } : {}),
     });
   }
 
-  async getHeadBlock(): Promise<number> {
-    const client = new HafClient(this.network.hafUrl ? { baseUrl: this.network.hafUrl } : {});
+  async getHeadBlock(_nodeUrl?: string, signal?: AbortSignal): Promise<number> {
+    const client = new HafClient(
+      this.network.hafUrl
+        ? {
+            baseUrl: this.network.hafUrl,
+            requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs,
+          }
+        : { requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs },
+    );
 
-    return client.getHeadBlock();
+    return client.getHeadBlock(signal);
   }
 }
 
@@ -222,6 +242,7 @@ export class HiveReliableBroadcaster {
 
       attempts += 1;
       const nodeUrl = this.pool.current();
+      const remainingDeadlineMs = this.retry.totalDeadlineMs - (this.clock.now() - startedAt);
 
       try {
         await this.transport.broadcast(nodeUrl, input.transaction, input.signal);
@@ -231,6 +252,7 @@ export class HiveReliableBroadcaster {
           attempts,
           expectedOperation: input.expectedOperation,
           expectedSigner: input.expectedSigner,
+          confirmationTimeoutMs: Math.min(this.retry.confirmationTimeoutMs, remainingDeadlineMs),
           nodeUrl,
           signal: input.signal,
           transactionId: input.transactionId,
@@ -249,6 +271,10 @@ export class HiveReliableBroadcaster {
         const confirmation = ambiguous
           ? await this.tryConfirm({
               attempts,
+              confirmationTimeoutMs: Math.min(
+                this.retry.confirmationTimeoutMs,
+                Math.max(0, this.retry.totalDeadlineMs - (this.clock.now() - startedAt)),
+              ),
               expectedOperation: input.expectedOperation,
               expectedSigner: input.expectedSigner,
               nodeUrl,
@@ -329,6 +355,7 @@ export class HiveReliableBroadcaster {
     transactionId: string;
     expectedSigner?: string | undefined;
     expectedOperation?: HiveLoreOperation | undefined;
+    confirmationTimeoutMs?: number | undefined;
     nodeUrl: string;
     signal?: AbortSignal | undefined;
   }): Promise<ConfirmedBroadcastResult> {
@@ -355,11 +382,12 @@ export class HiveReliableBroadcaster {
     transactionId: string;
     expectedSigner?: string | undefined;
     expectedOperation?: HiveLoreOperation | undefined;
+    confirmationTimeoutMs?: number | undefined;
     nodeUrl: string;
     signal?: AbortSignal | undefined;
   }): Promise<ConfirmedBroadcastResult | null> {
     const operation = await pollForConfirmedOperation({
-      confirmationTimeoutMs: this.retry.confirmationTimeoutMs,
+      confirmationTimeoutMs: input.confirmationTimeoutMs ?? this.retry.confirmationTimeoutMs,
       clock: this.clock,
       nodePool: this.confirmationPool,
       input,
@@ -485,6 +513,7 @@ export async function pollForConfirmedOperation(input: {
           await input.transport.searchBlocks({
             fromBlock: searchFromBlock,
             ...(nodeUrl ? { nodeUrl } : {}),
+            operationTypes: [HIVE_CUSTOM_JSON_OPERATION_TYPE],
             page,
             pageSize,
             toBlock: searchToBlock,

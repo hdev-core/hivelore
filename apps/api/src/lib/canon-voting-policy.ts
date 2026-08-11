@@ -61,7 +61,8 @@ export function tallyCanonVotes(
     }
   }
 
-  const approvalDenominator = counts.approve + counts.reject;
+  const approvalDenominator =
+    counts.approve + counts.reject + counts.needsRevision + counts.alternateTimeline;
   const approvalPercentageBps =
     approvalDenominator > 0 ? Math.floor((counts.approve * 10_000) / approvalDenominator) : 0;
 

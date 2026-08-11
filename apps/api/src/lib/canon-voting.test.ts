@@ -129,9 +129,26 @@ function createDatabase(decision = createDecision()) {
       },
     },
     proposalDecision: {
-      async update(args: { data: Record<string, unknown> }) {
-        Object.assign(decision, args.data);
+      async findUnique() {
         return decision;
+      },
+      async findUniqueOrThrow() {
+        return decision;
+      },
+      async updateMany(args: {
+        data: Record<string, unknown>;
+        where: { id: string; operationIndex: null; transactionId: null };
+      }) {
+        if (
+          args.where.id !== decision.id ||
+          decision.operationIndex !== null ||
+          decision.transactionId !== null
+        ) {
+          return { count: 0 };
+        }
+
+        Object.assign(decision, args.data);
+        return { count: 1 };
       },
     },
     $transaction<T>(callback: (transaction: unknown) => Promise<T>) {
