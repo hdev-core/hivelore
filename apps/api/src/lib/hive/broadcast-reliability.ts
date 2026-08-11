@@ -1,5 +1,6 @@
 import type { ApiTransaction } from '@hiveio/wax';
 
+import { hashCanonicalJson } from '../canon-voting-policy.js';
 import { verifyHiveLoreOperation } from './verification.js';
 import { normalizeHafOperation } from './projection.js';
 import { HafClient } from './haf-client.js';
@@ -11,6 +12,9 @@ import {
   sanitizeHiveNodeUrl,
 } from './network-config.js';
 import type { HafOperationRow, HiveLoreOperation, NormalizedHiveOperation } from './types.js';
+
+// Server-side signed broadcasts are groundwork for future custodial/worker flows.
+// The application currently uses this module primarily for confirming client-signed Hive broadcasts.
 
 export type BroadcastStatusCode =
   | 'BROADCAST_CONFIRMED'
@@ -54,9 +58,11 @@ export interface HiveBroadcastTransport {
   searchBlocks(params: {
     fromBlock?: number;
     toBlock?: number;
+    page?: number;
+    pageSize?: number;
     nodeUrl?: string;
     signal?: AbortSignal;
-  }): Promise<HafOperationRow[]>;
+  }): Promise<HafOperationRow[] | { operations: HafOperationRow[]; totalPages?: number }>;
   getHeadBlock(nodeUrl?: string, signal?: AbortSignal): Promise<number>;
 }
 
@@ -82,14 +88,19 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
     await client.broadcastTransaction(transaction);
   }
 
-  async searchBlocks(params: { fromBlock?: number; toBlock?: number }): Promise<HafOperationRow[]> {
+  async searchBlocks(params: {
+    fromBlock?: number;
+    toBlock?: number;
+    page?: number;
+    pageSize?: number;
+  }) {
     const client = new HafClient(this.network.hafUrl ? { baseUrl: this.network.hafUrl } : {});
-    const page = await client.searchBlocks({
+    return client.searchBlocks({
       ...(params.fromBlock === undefined ? {} : { fromBlock: params.fromBlock }),
+      ...(params.page === undefined ? {} : { page: params.page }),
+      ...(params.pageSize === undefined ? {} : { pageSize: params.pageSize }),
       ...(params.toBlock === undefined ? {} : { toBlock: params.toBlock }),
     });
-
-    return page.operations;
   }
 
   async getHeadBlock(): Promise<number> {
@@ -452,6 +463,7 @@ export async function pollForConfirmedOperation(input: {
 }): Promise<NormalizedHiveOperation | null> {
   const startedAt = input.clock.now();
   let fromBlock = input.input.blockNumberHint;
+  const pageSize = 100;
 
   while (input.clock.now() - startedAt <= input.confirmationTimeoutMs) {
     throwIfAborted(input.input.signal);
@@ -462,20 +474,46 @@ export async function pollForConfirmedOperation(input: {
       const head = fromBlock
         ? fromBlock
         : await input.transport.getHeadBlock(nodeUrl, input.input.signal);
-      const operations = await input.transport.searchBlocks({
-        fromBlock: fromBlock ?? Math.max(1, head - 1_200),
-        ...(nodeUrl ? { nodeUrl } : {}),
-        toBlock: fromBlock ?? head,
-        ...(input.input.signal ? { signal: input.input.signal } : {}),
-      });
-      const confirmed = findAndVerifyOperation(operations, input.input);
+      const searchFromBlock = fromBlock ?? Math.max(1, head - 1_200);
+      const searchToBlock = fromBlock ?? head;
+      let page = 1;
+
+      while (input.clock.now() - startedAt <= input.confirmationTimeoutMs) {
+        throwIfAborted(input.input.signal);
+
+        const searchPage = normalizeSearchPage(
+          await input.transport.searchBlocks({
+            fromBlock: searchFromBlock,
+            ...(nodeUrl ? { nodeUrl } : {}),
+            page,
+            pageSize,
+            toBlock: searchToBlock,
+            ...(input.input.signal ? { signal: input.input.signal } : {}),
+          }),
+        );
+        const confirmed = findAndVerifyOperation(searchPage.operations, input.input);
+
+        if (confirmed) {
+          if (nodeUrl) {
+            input.nodePool?.reportSuccess(nodeUrl);
+          }
+
+          return confirmed;
+        }
+
+        if (
+          searchPage.totalPages !== undefined
+            ? page >= searchPage.totalPages
+            : searchPage.operations.length < pageSize
+        ) {
+          break;
+        }
+
+        page += 1;
+      }
 
       if (nodeUrl) {
         input.nodePool?.reportSuccess(nodeUrl);
-      }
-
-      if (confirmed) {
-        return confirmed;
       }
     } catch (error) {
       const classified = classifyHiveBroadcastError(error);
@@ -501,14 +539,25 @@ export function findAndVerifyOperation(
   input: ConfirmOperationInput,
 ): NormalizedHiveOperation | null {
   for (const row of rows) {
-    const operation = normalizeHafOperation(row);
-
-    if (operation.transactionId !== input.transactionId) {
+    if (!rowMatchesTransaction(row, input.transactionId)) {
       continue;
     }
 
-    if (input.operationIndex !== undefined && operation.operationIndex !== input.operationIndex) {
+    if (!rowMatchesOperationIndex(row, input.operationIndex)) {
       continue;
+    }
+
+    let operation: NormalizedHiveOperation;
+
+    try {
+      operation = normalizeHafOperation(row);
+    } catch (error) {
+      throw new HiveBroadcastError(
+        'BROADCAST_REJECTED',
+        'Confirmed Hive row for the transaction could not be normalized.',
+        'permanent',
+        { cause: error instanceof Error ? error.message : String(error) },
+      );
     }
 
     const verification = verifyHiveLoreOperation({
@@ -562,7 +611,28 @@ function isAmbiguousBroadcastError(error: HiveBroadcastError) {
 }
 
 function operationsEqual(left: HiveLoreOperation, right: HiveLoreOperation) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return hashCanonicalJson(left) === hashCanonicalJson(right);
+}
+
+function normalizeSearchPage(
+  page: HafOperationRow[] | { operations: HafOperationRow[]; totalPages?: number },
+) {
+  return Array.isArray(page) ? { operations: page } : page;
+}
+
+function rowMatchesTransaction(row: HafOperationRow, transactionId: string) {
+  return (row.transaction_id ?? row.transactionId ?? row.trx_id) === transactionId;
+}
+
+function rowMatchesOperationIndex(row: HafOperationRow, operationIndex: number | undefined) {
+  if (operationIndex === undefined) {
+    return true;
+  }
+
+  const rawIndex = row.operation_id ?? row.operationIndex ?? row.op_pos;
+  const numericIndex = typeof rawIndex === 'string' ? Number(rawIndex) : rawIndex;
+
+  return numericIndex === operationIndex;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined) {

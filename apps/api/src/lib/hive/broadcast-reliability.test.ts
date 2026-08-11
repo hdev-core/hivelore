@@ -281,6 +281,106 @@ describe('Hive broadcast reliability', () => {
     );
   });
 
+  test('matches expected operations with canonical JSON ordering', () => {
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
+
+    const hivedOrderedOperation = {
+      custom_json_operation: {
+        required_auths: customJson.required_auths,
+        required_posting_auths: customJson.required_posting_auths,
+        id: customJson.id,
+        json: customJson.json,
+      },
+    };
+
+    const confirmed = findAndVerifyOperation(
+      [
+        {
+          block_num: 101,
+          operation: hivedOrderedOperation,
+          operation_id: 0,
+          timestamp: '2026-08-10T12:01:00.000Z',
+          transaction_id: 'tx-1',
+        },
+      ],
+      {
+        expectedOperation: operation,
+        expectedSigner: 'mira-vale.dev',
+        transactionId: 'tx-1',
+      },
+    );
+
+    assert.equal(confirmed?.transactionId, 'tx-1');
+  });
+
+  test('ignores unrelated malformed HAF rows before normalizing candidates', () => {
+    const confirmed = findAndVerifyOperation(
+      [
+        {
+          block_num: 101,
+          operation: { transfer_operation: { from: 'alice', to: 'bob' } },
+          operation_id: 0,
+          timestamp: '2026-08-10T12:01:00.000Z',
+          transaction_id: 'unrelated-tx',
+        },
+        row(),
+      ],
+      {
+        expectedOperation: operation,
+        expectedSigner: 'mira-vale.dev',
+        transactionId: 'tx-1',
+      },
+    );
+
+    assert.equal(confirmed?.transactionId, 'tx-1');
+  });
+
+  test('walks HAF block-search pages until the target transaction is found', async () => {
+    const searchedPages: number[] = [];
+    const broadcaster = new HiveReliableBroadcaster(
+      network,
+      {
+        async broadcast() {},
+        async getHeadBlock() {
+          return 101;
+        },
+        async searchBlocks(params) {
+          searchedPages.push(params.page ?? 0);
+
+          if (params.page === 1) {
+            return {
+              operations: Array.from({ length: params.pageSize ?? 100 }, (_, index) => ({
+                block_num: 101,
+                operation: { transfer_operation: { from: 'alice', to: 'bob' } },
+                operation_id: index,
+                timestamp: '2026-08-10T12:01:00.000Z',
+                transaction_id: `unrelated-${index}`,
+              })),
+              totalPages: 2,
+            };
+          }
+
+          return { operations: [row()], totalPages: 2 };
+        },
+      },
+      {
+        confirmationPollIntervalMs: 1,
+        confirmationTimeoutMs: 10,
+      },
+      fakeClock(),
+    );
+
+    const result = await broadcaster.confirmTransaction({
+      expectedOperation: operation,
+      expectedSigner: 'mira-vale.dev',
+      transactionId: 'tx-1',
+    });
+
+    assert.deepEqual(searchedPages, [1, 2]);
+    assert.equal(result.transactionId, 'tx-1');
+  });
+
   test('calculates capped exponential backoff with bounded jitter', () => {
     assert.equal(delayForAttempt(1, DEFAULT_HIVE_RETRY_CONFIG, 0.5), 500);
     assert.equal(delayForAttempt(3, DEFAULT_HIVE_RETRY_CONFIG, 0.5), 2_000);
