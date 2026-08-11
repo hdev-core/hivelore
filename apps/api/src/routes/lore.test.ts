@@ -477,7 +477,7 @@ describe('lore routes', () => {
       authorResponse.json().entries.map((entry: { id: string }) => entry.id),
       ['own-draft'],
     );
-    assert.equal(authorResponse.json().entries[0].outgoingRelations.length, 0);
+    assert.equal('outgoingRelations' in authorResponse.json().entries[0], false);
     assert.deepEqual(
       curatorResponse
         .json()
@@ -486,9 +486,9 @@ describe('lore routes', () => {
       ['other-draft', 'own-draft'],
     );
     assert.equal(
-      curatorResponse.json().entries.find((entry: { id: string }) => entry.id === 'own-draft')
-        .outgoingRelations.length,
-      1,
+      'incomingRelations' in
+        curatorResponse.json().entries.find((entry: { id: string }) => entry.id === 'own-draft'),
+      false,
     );
     await app.close();
   });
@@ -537,6 +537,16 @@ describe('lore routes', () => {
       },
       url: '/worlds/world-1/lore',
     });
+    const mismatchedEntityType = await app.inject({
+      headers: authHeader(),
+      method: 'POST',
+      payload: {
+        content: { body: 'A body.', entityType: 'QUEST', summary: 'A summary.' },
+        loreType: LoreType.OTHER,
+        title: 'Mismatched entity type',
+      },
+      url: '/worlds/world-1/lore',
+    });
     const created = await app.inject({
       headers: authHeader(),
       method: 'POST',
@@ -558,6 +568,7 @@ describe('lore routes', () => {
     assert.equal(forbidden.statusCode, 403);
     assert.equal(selfPublish.statusCode, 400);
     assert.equal(oversizedSummary.statusCode, 400);
+    assert.equal(mismatchedEntityType.statusCode, 400);
     assert.equal(created.statusCode, 201);
     assert.equal(created.json().entry.status, LoreStatus.DRAFT);
     assert.equal(created.json().entry.loreType, LoreType.QUEST);
@@ -602,6 +613,15 @@ describe('lore routes', () => {
       },
       url: '/worlds/world-1/lore/draft-1',
     });
+    const mismatchedEntityType = await app.inject({
+      headers: authHeader(),
+      method: 'PATCH',
+      payload: {
+        content: { body: 'Updated.', entityType: 'QUEST', summary: 'Updated summary.' },
+        loreType: LoreType.OTHER,
+      },
+      url: '/worlds/world-1/lore/draft-1',
+    });
     const canonDelete = await app.inject({
       headers: authHeader(curator),
       method: 'DELETE',
@@ -617,6 +637,7 @@ describe('lore routes', () => {
     assert.equal(selfPublishUpdate.statusCode, 400);
     assert.equal(update.statusCode, 200);
     assert.equal(update.json().entry.loreType, LoreType.STORY);
+    assert.equal(mismatchedEntityType.statusCode, 400);
     assert.equal(canonDelete.statusCode, 409);
     assert.equal(deleteResponse.statusCode, 200);
     assert.equal(deleteResponse.json().ok, true);

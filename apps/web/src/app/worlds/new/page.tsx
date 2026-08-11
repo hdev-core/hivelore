@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -11,8 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/api/errors';
-import { getStoredAccessToken } from '@/lib/api/session';
 import { createWorld } from '@/lib/api/worlds';
+import { useAuthSession } from '@/providers/auth-session-provider';
 
 const starterCharacters = ['Founder heir', 'Rival witness', 'Guide or chronicler'];
 const starterFactions = ['Founder circle', 'Opposing faction', 'Neutral civic group'];
@@ -51,6 +51,13 @@ export default function NewWorldPage() {
   const [title, setTitle] = useState('');
   const [tone, setTone] = useState('');
   const [worldRules, setWorldRules] = useState('');
+  const { accessToken, isSessionLoading, user } = useAuthSession();
+
+  useEffect(() => {
+    if (!isSessionLoading && !accessToken) {
+      router.replace('/login');
+    }
+  }, [accessToken, isSessionLoading, router]);
 
   const canSubmit = useMemo(
     () =>
@@ -61,15 +68,14 @@ export default function NewWorldPage() {
       tone.trim() &&
       mainConflict.trim() &&
       worldRules.trim() &&
+      Boolean(accessToken) &&
       !isSubmitting,
-    [description, genre, isSubmitting, mainConflict, premise, title, tone, worldRules],
+    [accessToken, description, genre, isSubmitting, mainConflict, premise, title, tone, worldRules],
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-
-    const accessToken = getStoredAccessToken();
 
     if (!accessToken) {
       setError('Please sign in before creating a world.');
@@ -355,12 +361,14 @@ export default function NewWorldPage() {
               >
                 Back to Worlds
               </Link>
-              <Link
-                className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground shadow-soft transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                href="/login"
-              >
-                Sign in
-              </Link>
+              {!user ? (
+                <Link
+                  className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground shadow-soft transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  href="/login"
+                >
+                  Sign in
+                </Link>
+              ) : null}
             </div>
           </CardContent>
         </Card>

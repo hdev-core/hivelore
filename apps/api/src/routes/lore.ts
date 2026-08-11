@@ -31,6 +31,18 @@ const RELATIONSHIP_TYPES = [
   'created_by',
   'related_to',
 ] as const;
+const CONTENT_ENTITY_TYPE_BY_LORE_TYPE: Record<LoreType, string> = {
+  [LoreType.ARTIFACT]: 'ARTIFACT',
+  [LoreType.CHARACTER]: 'CHARACTER',
+  [LoreType.EVENT]: 'HISTORICAL_EVENT',
+  [LoreType.FACTION]: 'FACTION',
+  [LoreType.HISTORY]: 'HISTORY',
+  [LoreType.LOCATION]: 'CITY_KINGDOM',
+  [LoreType.OTHER]: 'OTHER',
+  [LoreType.QUEST]: 'QUEST',
+  [LoreType.RULE]: 'RULE',
+  [LoreType.STORY]: 'STORY_CONTRIBUTION',
+};
 
 type LoreDatabase = Pick<
   PrismaClient,
@@ -225,6 +237,23 @@ type LoreEntryWithRelations = Prisma.LoreEntryGetPayload<{
   include: ReturnType<typeof loreEntryInclude>;
 }>;
 
+function loreEntryListInclude() {
+  return {
+    author: {
+      select: {
+        avatarUrl: true,
+        displayName: true,
+        hiveUsername: true,
+        id: true,
+      },
+    },
+  } satisfies Prisma.LoreEntryInclude;
+}
+
+type LoreEntryListItem = Prisma.LoreEntryGetPayload<{
+  include: ReturnType<typeof loreEntryListInclude>;
+}>;
+
 class LoreRouteError extends Error {
   constructor(
     public readonly statusCode: number,
@@ -312,6 +341,24 @@ function serializeLoreEntry(
   };
 }
 
+function serializeLoreListEntry(entry: LoreEntryListItem) {
+  return {
+    author: entry.author,
+    authorId: entry.authorId,
+    content: entry.content,
+    createdAt: entry.createdAt.toISOString(),
+    hiveReferenceId: entry.hiveReferenceId,
+    id: entry.id,
+    loreType: entry.loreType,
+    publishedAt: serializeDate(entry.publishedAt),
+    slug: entry.slug,
+    status: entry.status,
+    title: entry.title,
+    updatedAt: entry.updatedAt.toISOString(),
+    worldId: entry.worldId,
+  };
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
     typeof value === 'object' &&
@@ -351,7 +398,7 @@ function validateJsonValue(value: unknown, depth = 0): Prisma.InputJsonValue {
   throw new LoreRouteError(400, 'Lore content must be JSON-serializable.');
 }
 
-function validateLoreContent(value: unknown): Prisma.InputJsonValue {
+function validateLoreContent(value: unknown, loreType: LoreType): Prisma.InputJsonValue {
   if (!isPlainObject(value)) {
     throw new LoreRouteError(400, 'Lore content must be a JSON object.');
   }
@@ -372,6 +419,19 @@ function validateLoreContent(value: unknown): Prisma.InputJsonValue {
 
   if (body !== undefined && typeof body !== 'string') {
     throw new LoreRouteError(400, 'Lore body must be a string.');
+  }
+
+  const entityType = value.entityType;
+  const expectedEntityType = CONTENT_ENTITY_TYPE_BY_LORE_TYPE[loreType];
+
+  if (entityType !== undefined) {
+    if (typeof entityType !== 'string') {
+      throw new LoreRouteError(400, 'Lore entity type must be a string.');
+    }
+
+    if (entityType !== expectedEntityType) {
+      throw new LoreRouteError(400, 'Lore entity type must match the lore type.');
+    }
   }
 
   return validateJsonValue(value);
@@ -720,11 +780,6 @@ export async function registerLoreRoutes(
       const requestedStatus = query.data.status ?? LoreStatus.PUBLISHED_CANON;
       const page = query.data.page;
       const pageSize = query.data.pageSize;
-      let includeAllNonPublicRelations = await canViewAllNonPublicLore(
-        request,
-        database,
-        params.data.worldId,
-      );
       const where: Prisma.LoreEntryWhereInput = {
         ...(query.data.loreType ? { loreType: query.data.loreType } : {}),
         ...(query.data.q
@@ -755,16 +810,12 @@ export async function registerLoreRoutes(
           });
         }
 
-        includeAllNonPublicRelations = scope.includeAllNonPublicRelations;
         Object.assign(where, scope.where);
       }
 
       const [entries, total] = await Promise.all([
         database.loreEntry.findMany({
-          include: loreEntryInclude({
-            includeAllNonPublicRelations,
-            viewerId: request.user?.id,
-          }),
+          include: loreEntryListInclude(),
           orderBy: [
             {
               updatedAt: 'desc',
@@ -783,12 +834,7 @@ export async function registerLoreRoutes(
       ]);
 
       return {
-        entries: entries.map((entry) =>
-          serializeLoreEntry(entry, {
-            includeAllNonPublicRelations,
-            viewerId: request.user?.id,
-          }),
-        ),
+        entries: entries.map((entry) => serializeLoreListEntry(entry)),
         pagination: {
           page,
           pageSize,
@@ -1259,7 +1305,7 @@ export async function registerLoreRoutes(
 
       try {
         const title = normalizeTitle(body.data.title);
-        const content = validateLoreContent(body.data.content);
+        const content = validateLoreContent(body.data.content, body.data.loreType);
         const slug = await createUniqueSlug(database, params.data.worldId, title);
         const entry = await database.$transaction(async (transaction) => {
           const created = await transaction.loreEntry.create({
@@ -1354,7 +1400,9 @@ export async function registerLoreRoutes(
       const existing = await database.loreEntry.findFirst({
         select: {
           authorId: true,
+          content: true,
           id: true,
+          loreType: true,
           status: true,
         },
         where: {
@@ -1407,8 +1455,14 @@ export async function registerLoreRoutes(
           data.loreType = body.data.loreType;
         }
 
-        if (body.data.content !== undefined) {
-          data.content = validateLoreContent(body.data.content);
+        if (body.data.content !== undefined || body.data.loreType !== undefined) {
+          const nextLoreType = body.data.loreType ?? existing.loreType;
+          const nextContent = body.data.content ?? existing.content;
+          const validatedContent = validateLoreContent(nextContent, nextLoreType);
+
+          if (body.data.content !== undefined) {
+            data.content = validatedContent;
+          }
         }
 
         const entry = await database.$transaction(async (transaction) => {

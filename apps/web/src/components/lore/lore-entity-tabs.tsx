@@ -10,8 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/api/errors';
 import { listLoreEntries, type LoreEntry } from '@/lib/api/lore';
-import { getStoredAccessToken } from '@/lib/api/session';
 import { loreCategories, type LoreCategory } from '@/lib/worlds/constants';
+import { useAuthSession } from '@/providers/auth-session-provider';
 
 import {
   getEntrySummary,
@@ -53,6 +53,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export function LoreEntityTabs({ fallbackEntries, worldId }: LoreEntityTabsProps) {
+  const { accessToken } = useAuthSession();
   const [activeCategory, setActiveCategory] = useState<LoreCategory>(defaultCategory);
   const [entries, setEntries] = useState<LoreEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +69,6 @@ export function LoreEntityTabs({ fallbackEntries, worldId }: LoreEntityTabsProps
 
       try {
         const trimmedQuery = query.trim();
-        const accessToken = getStoredAccessToken();
         const response = await listLoreEntries(
           worldId,
           {
@@ -98,7 +98,7 @@ export function LoreEntityTabs({ fallbackEntries, worldId }: LoreEntityTabsProps
     return () => {
       isActive = false;
     };
-  }, [activeCategory, query, worldId]);
+  }, [accessToken, activeCategory, query, worldId]);
 
   const visibleFallbackEntries = fallbackEntries.filter(
     (entry) => entry.loreType === getLoreTypeFromCategory(activeCategory),

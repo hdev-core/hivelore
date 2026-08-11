@@ -20,8 +20,8 @@ import {
   updateLoreEntry,
   type LoreEntry,
 } from '@/lib/api/lore';
-import { getStoredAccessToken } from '@/lib/api/session';
 import { loreTypes, type LoreType } from '@/lib/worlds/constants';
+import { useAuthSession } from '@/providers/auth-session-provider';
 
 import {
   getLoreTypeOptionFromApiType,
@@ -115,6 +115,7 @@ function getErrorMessage(error: unknown) {
 
 export function LoreEntryForm({ entry = null, initialType, mode, worldId }: LoreEntryFormProps) {
   const router = useRouter();
+  const { accessToken } = useAuthSession();
   const fields = getEntryFields(entry ?? { content: null });
   const [body, setBody] = useState(() => getEntryBody(entry ?? { content: null }));
   const [currentEntry, setCurrentEntry] = useState<LoreEntry | null>(entry);
@@ -163,8 +164,6 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     let isActive = true;
 
     async function loadTargets(currentEntry: LoreEntry) {
-      const accessToken = getStoredAccessToken();
-
       if (!accessToken || currentEntry.status !== 'DRAFT') {
         setTargetEntries([]);
         setTargetId('');
@@ -213,14 +212,12 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     return () => {
       isActive = false;
     };
-  }, [currentEntry, worldId]);
+  }, [accessToken, currentEntry, worldId]);
 
   async function handleAddRelationship() {
     if (!currentEntry || !targetId) {
       return;
     }
-
-    const accessToken = getStoredAccessToken();
 
     if (!accessToken) {
       setRelationshipError('Please sign in before linking lore.');
@@ -261,8 +258,6 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
       return;
     }
 
-    const accessToken = getStoredAccessToken();
-
     if (!accessToken) {
       setRelationshipError('Please sign in before unlinking lore.');
       return;
@@ -293,8 +288,6 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-
-    const accessToken = getStoredAccessToken();
 
     if (!accessToken) {
       setError('Please sign in before saving lore.');
@@ -339,8 +332,6 @@ export function LoreEntryForm({ entry = null, initialType, mode, worldId }: Lore
     if (!entry) {
       return;
     }
-
-    const accessToken = getStoredAccessToken();
 
     if (!accessToken) {
       setError('Please sign in before deleting lore.');

@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ApiError } from '@/lib/api/errors';
 import { getLoreEntry, type LoreEntry } from '@/lib/api/lore';
-import { getStoredAccessToken } from '@/lib/api/session';
+import { useAuthSession } from '@/providers/auth-session-provider';
 
 import {
   getEntryBody,
@@ -236,13 +236,13 @@ export function LoreEntryDetailClient({
   initialEntry = null,
   worldId,
 }: LoreEntryDetailClientProps) {
+  const { accessToken, isSessionLoading } = useAuthSession();
   const [entry, setEntry] = useState<LoreEntry | null>(initialEntry);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(!initialEntry);
   const [isMissing, setIsMissing] = useState(false);
 
   useEffect(() => {
-    const accessToken = getStoredAccessToken();
     const shouldRefreshWithToken = Boolean(initialEntry && accessToken);
 
     let isActive = true;
@@ -284,6 +284,16 @@ export function LoreEntryDetailClient({
       setIsMissing(false);
     }
 
+    if (isSessionLoading) {
+      if (!initialEntry) {
+        setIsLoading(true);
+      }
+
+      return () => {
+        isActive = false;
+      };
+    }
+
     if (initialEntry && !shouldRefreshWithToken) {
       return () => {
         isActive = false;
@@ -295,7 +305,7 @@ export function LoreEntryDetailClient({
     return () => {
       isActive = false;
     };
-  }, [entryId, initialEntry, worldId]);
+  }, [accessToken, entryId, initialEntry, isSessionLoading, worldId]);
 
   if (isMissing) {
     notFound();

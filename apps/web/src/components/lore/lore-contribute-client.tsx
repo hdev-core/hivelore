@@ -6,8 +6,8 @@ import { LoreEntryForm } from '@/components/lore/lore-entry-form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ApiError } from '@/lib/api/errors';
 import { getLoreEntry, type LoreEntry } from '@/lib/api/lore';
-import { getStoredAccessToken } from '@/lib/api/session';
 import type { LoreType } from '@/lib/worlds/constants';
+import { useAuthSession } from '@/providers/auth-session-provider';
 
 import { getLoreTypeFromQuery } from './lore-utils';
 
@@ -30,6 +30,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export function LoreContributeClient({ entryId, type, worldId }: LoreContributeClientProps) {
+  const { accessToken, isSessionLoading } = useAuthSession();
   const [entry, setEntry] = useState<LoreEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(entryId));
@@ -39,7 +40,12 @@ export function LoreContributeClient({ entryId, type, worldId }: LoreContributeC
     if (!entryId) {
       setEntry(null);
       setError(null);
-      setIsLoading(false);
+      setIsLoading(isSessionLoading);
+      return;
+    }
+
+    if (isSessionLoading) {
+      setIsLoading(true);
       return;
     }
 
@@ -51,7 +57,6 @@ export function LoreContributeClient({ entryId, type, worldId }: LoreContributeC
       setIsLoading(true);
 
       try {
-        const accessToken = getStoredAccessToken();
         const response = await getLoreEntry(worldId, currentEntryId, accessToken);
 
         if (isActive) {
@@ -74,7 +79,7 @@ export function LoreContributeClient({ entryId, type, worldId }: LoreContributeC
     return () => {
       isActive = false;
     };
-  }, [entryId, worldId]);
+  }, [accessToken, entryId, isSessionLoading, worldId]);
 
   return (
     <div className="space-y-8">
