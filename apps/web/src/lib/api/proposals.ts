@@ -67,6 +67,11 @@ export type ProposalCommentsResponse = {
 export type ProposalDetail = {
   aiWarning: {
     acknowledged: boolean;
+    acknowledgedAt: string | null;
+    acknowledgmentRequired: boolean;
+    category: string | null;
+    evidence: string | null;
+    severity: string | null;
     summary: string | null;
   };
   author: {
@@ -180,6 +185,20 @@ export function castProposalVote(input: {
   return apiClient.post(
     `/worlds/${input.worldId}/proposals/${input.proposalId}/votes`,
     { choice: input.choice },
+    {
+      headers: authHeaders(input.accessToken),
+    },
+  );
+}
+
+export function acknowledgeProposalAiWarning(input: {
+  accessToken: string;
+  proposalId: string;
+  worldId: string;
+}) {
+  return apiClient.post<{ aiWarning: ProposalDetail['aiWarning']; idempotent: boolean }>(
+    `/worlds/${input.worldId}/proposals/${input.proposalId}/ai-warning/acknowledge`,
+    {},
     {
       headers: authHeaders(input.accessToken),
     },

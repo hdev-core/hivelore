@@ -80,6 +80,16 @@ describe('API environment validation', () => {
     assert.equal(env.HIVE_CONFIRMATION_TIMEOUT_MS, 60_000);
   });
 
+  test('parses bounded proposal comment write rate-limit defaults', () => {
+    const env = parseEnv({
+      NODE_ENV: 'test',
+    });
+
+    assert.equal(env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE, 10_000);
+    assert.equal(env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX, 5);
+    assert.equal(env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS, 60);
+  });
+
   test('rejects invalid Hive network configuration', () => {
     assert.throws(
       () =>
@@ -97,6 +107,15 @@ describe('API environment validation', () => {
           NODE_ENV: 'test',
         }),
       /HIVE_MAINNET_CHAIN_ID/,
+    );
+
+    assert.throws(
+      () =>
+        parseEnv({
+          NODE_ENV: 'test',
+          PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX: '0',
+        }),
+      /PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX/,
     );
   });
 });

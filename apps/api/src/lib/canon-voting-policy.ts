@@ -5,8 +5,8 @@ import { ProposalDecisionOutcome, VoteChoice } from '../generated/prisma/enums.j
 export const CANON_VOTING_RULES = {
   approvalThresholdBps: 7_000,
   minimumVotes: 5,
-  payloadSchemaVersion: 1,
-  rulesVersion: 'canon-voting-mvp-2026-08-10',
+  payloadSchemaVersion: 2,
+  rulesVersion: 'canon-voting-mvp-2026-08-11',
   votingWindowHours: 48,
 } as const;
 
@@ -34,7 +34,10 @@ export function getVotingWindowState(input: { now: Date; votingEndsAt: Date }) {
   return input.now.getTime() < input.votingEndsAt.getTime() ? 'BEFORE_END' : 'AT_OR_AFTER_END';
 }
 
-export function tallyCanonVotes(votes: Array<{ choice: VoteChoice }>): CanonTally {
+export function tallyCanonVotes(
+  votes: Array<{ choice: VoteChoice; voterId?: string | null }>,
+  options: { excludeVoterIds?: ReadonlySet<string> } = {},
+): CanonTally {
   const counts: CanonVoteCounts = {
     alternateTimeline: 0,
     approve: 0,
@@ -43,6 +46,10 @@ export function tallyCanonVotes(votes: Array<{ choice: VoteChoice }>): CanonTall
   };
 
   for (const vote of votes) {
+    if (vote.voterId && options.excludeVoterIds?.has(vote.voterId)) {
+      continue;
+    }
+
     if (vote.choice === VoteChoice.APPROVE) {
       counts.approve += 1;
     } else if (vote.choice === VoteChoice.REJECT) {

@@ -15,7 +15,7 @@ import {
 import { normalizeHafOperation } from './hive/projection.js';
 import { verifyHiveLoreOperation } from './hive/verification.js';
 import type { HafClient } from './hive/haf-client.js';
-import type { NormalizedHiveOperation } from './hive/types.js';
+import type { HafOperationRow, NormalizedHiveOperation } from './hive/types.js';
 import {
   addVotingWindow,
   CANON_VOTING_RULES,
@@ -54,6 +54,16 @@ type ProposalWithDetails = Prisma.ProposalGetPayload<{
   };
 }>;
 
+type AiWarningSnapshot = {
+  acknowledged: boolean;
+  acknowledgedAt: string | null;
+  acknowledgmentRequired: boolean;
+  category: string | null;
+  evidence: string | null;
+  severity: string | null;
+  summary: string | null;
+};
+
 function iso(value: Date | null | undefined) {
   return value ? value.toISOString() : null;
 }
@@ -66,21 +76,134 @@ function assertVoteChoice(choice: string): VoteChoice {
   return choice as VoteChoice;
 }
 
-function isMajorAiWarning(report: { findings: unknown; summary: string | null }) {
-  const source = `${report.summary ?? ''} ${JSON.stringify(report.findings ?? {})}`.toLowerCase();
+function readStringField(value: unknown, keys: string[]) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
 
-  return source.includes('major') || source.includes('contradiction') || source.includes('warning');
+  const record = value as Record<string, unknown>;
+
+  for (const key of keys) {
+    const field = record[key];
+
+    if (typeof field === 'string' && field.trim()) {
+      return field.trim();
+    }
+  }
+
+  return null;
+}
+
+function flattenAiFindings(value: unknown): Array<Record<string, unknown>> {
+  if (!value) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap(flattenAiFindings);
+  }
+
+  if (typeof value !== 'object') {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const nested = ['findings', 'warnings', 'issues', 'conflicts', 'items'].flatMap((key) =>
+    flattenAiFindings(record[key]),
+  );
+
+  return [record, ...nested];
+}
+
+function textIndicatesNoMajorWarning(source: string) {
+  const normalized = source.toLowerCase();
+
+  return [
+    /\bno\s+(?:major\s+)?(?:warning|contradiction|conflict)s?\s+(?:found|detected|identified|present)?\b/,
+    /\bwithout\s+(?:a\s+)?(?:major\s+)?(?:warning|contradiction|conflict)\b/,
+    /\b(?:warning|contradiction|conflict)\s+free\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function textIndicatesMajorWarning(source: string) {
+  const normalized = source.toLowerCase();
+
+  if (textIndicatesNoMajorWarning(normalized)) {
+    return false;
+  }
+
+  return [
+    /\b(?:major|critical|high)\s+(?:ai\s+)?(?:warning|contradiction|conflict|issue)\b/,
+    /\b(?:warning|contradiction|conflict|issue)\s+(?:severity|level)\s*[:=]\s*(?:major|critical|high)\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function warningFromReport(report: { findings: unknown; summary: string | null }) {
+  for (const finding of flattenAiFindings(report.findings)) {
+    const severity = readStringField(finding, ['severity', 'level', 'risk']);
+    const category = readStringField(finding, ['category', 'type', 'kind']);
+    const summary = readStringField(finding, ['summary', 'message', 'description', 'text']);
+    const evidence = readStringField(finding, ['evidence', 'detail', 'details', 'excerpt']);
+    const source = [severity, category, summary, evidence].filter(Boolean).join(' ');
+
+    if (
+      severity &&
+      ['major', 'critical', 'high'].includes(severity.toLowerCase()) &&
+      !textIndicatesNoMajorWarning(source)
+    ) {
+      return {
+        category,
+        evidence,
+        severity,
+        summary: summary ?? report.summary,
+      };
+    }
+
+    if (textIndicatesMajorWarning(source)) {
+      return {
+        category,
+        evidence,
+        severity,
+        summary: summary ?? report.summary,
+      };
+    }
+  }
+
+  const source = `${report.summary ?? ''} ${JSON.stringify(report.findings ?? {})}`;
+
+  if (!textIndicatesMajorWarning(source)) {
+    return null;
+  }
+
+  return {
+    category: null,
+    evidence: null,
+    severity: null,
+    summary: report.summary,
+  };
 }
 
 function aiWarningSnapshot(proposal: {
   aiReports: Array<{ findings: unknown; summary: string | null }>;
-}) {
-  const warning = proposal.aiReports.find(isMajorAiWarning);
+  aiWarningAcknowledgedAt?: Date | null;
+}): AiWarningSnapshot {
+  const warning = proposal.aiReports.map(warningFromReport).find(Boolean) ?? null;
+  const acknowledgedAt = iso(proposal.aiWarningAcknowledgedAt);
+  const acknowledgmentRequired = Boolean(warning);
 
   return {
-    acknowledged: Boolean(warning),
+    acknowledged: acknowledgmentRequired && Boolean(acknowledgedAt),
+    acknowledgedAt,
+    acknowledgmentRequired,
+    category: warning?.category ?? null,
+    evidence: warning?.evidence ?? null,
+    severity: warning?.severity ?? null,
     summary: warning?.summary ?? null,
   };
+}
+
+function proposalAuthorExclusion(authorId: string) {
+  return new Set([authorId]);
 }
 
 export function serializeDecision(decision: ProposalWithDetails['decision']) {
@@ -123,7 +246,9 @@ export function serializeProposalDetail(
   proposal: ProposalWithDetails,
   currentUserId?: string | undefined,
 ) {
-  const summary = tallyCanonVotes(proposal.votes);
+  const summary = tallyCanonVotes(proposal.votes, {
+    excludeVoterIds: proposalAuthorExclusion(proposal.authorId),
+  });
   const currentVote = currentUserId
     ? proposal.votes.find((vote: { voterId: string }) => vote.voterId === currentUserId)
     : null;
@@ -139,12 +264,13 @@ export function serializeProposalDetail(
     branchParentProposalId: proposal.branchParentProposalId,
     conflictMetadata: proposal.conflictMetadata,
     contentHash: proposal.contentHash,
-    currentUserVote: currentVote
-      ? {
-          choice: currentVote.choice,
-          updatedAt: currentVote.updatedAt.toISOString(),
-        }
-      : null,
+    currentUserVote:
+      currentVote && currentUserId !== proposal.authorId
+        ? {
+            choice: currentVote.choice,
+            updatedAt: currentVote.updatedAt.toISOString(),
+          }
+        : null,
     decision: serializeDecision(proposal.decision),
     id: proposal.id,
     proposedContent: proposal.proposedContent,
@@ -219,8 +345,10 @@ export async function getVoteSummary(
       votes: {
         select: {
           choice: true,
+          voterId: true,
         },
       },
+      authorId: true,
       worldId: true,
     },
     where: {
@@ -236,7 +364,9 @@ export async function getVoteSummary(
   return {
     rules: CANON_VOTING_RULES,
     status: proposal.status,
-    tally: tallyCanonVotes(proposal.votes),
+    tally: tallyCanonVotes(proposal.votes, {
+      excludeVoterIds: proposalAuthorExclusion(proposal.authorId),
+    }),
     votingEndsAt: iso(proposal.votingEndsAt),
     votingStartedAt: iso(proposal.votingStartedAt),
   };
@@ -260,6 +390,7 @@ export async function castCanonVote(
       select: {
         decision: { select: { id: true } },
         id: true,
+        authorId: true,
         status: true,
         votingEndsAt: true,
         worldId: true,
@@ -276,6 +407,14 @@ export async function castCanonVote(
 
     if (proposal.status !== ProposalStatus.VOTING || proposal.decision) {
       throw new CanonVotingError(409, 'PROPOSAL_NOT_VOTING', 'Proposal is not open for voting.');
+    }
+
+    if (proposal.authorId === input.voterId) {
+      throw new CanonVotingError(
+        403,
+        'PROPOSAL_AUTHOR_CANNOT_VOTE',
+        'Proposal authors cannot vote on their own canon proposals.',
+      );
     }
 
     if (!proposal.votingEndsAt || now.getTime() >= proposal.votingEndsAt.getTime()) {
@@ -312,9 +451,80 @@ export async function castCanonVote(
   });
 }
 
+export async function acknowledgeProposalAiWarning(
+  database: CanonVotingDatabase,
+  input: { actorId: string; proposalId: string; worldId: string; now?: Date },
+) {
+  const now = input.now ?? new Date();
+
+  return database.$transaction(async (transaction: Prisma.TransactionClient) => {
+    const proposal = await transaction.proposal.findFirst({
+      include: {
+        aiReports: true,
+      },
+      where: {
+        id: input.proposalId,
+        worldId: input.worldId,
+      },
+    });
+
+    if (!proposal) {
+      throw new CanonVotingError(404, 'PROPOSAL_NOT_FOUND', 'Proposal not found.');
+    }
+
+    const warning = aiWarningSnapshot(proposal);
+
+    if (!warning.acknowledgmentRequired) {
+      throw new CanonVotingError(
+        409,
+        'AI_WARNING_NOT_REQUIRED',
+        'This proposal does not have a major AI warning to acknowledge.',
+      );
+    }
+
+    const updated = await transaction.proposal.update({
+      data: {
+        aiWarningAcknowledgedAt: proposal.aiWarningAcknowledgedAt ?? now,
+      },
+      where: {
+        id: proposal.id,
+      },
+    });
+
+    const snapshot = aiWarningSnapshot({
+      aiReports: proposal.aiReports,
+      aiWarningAcknowledgedAt: updated.aiWarningAcknowledgedAt,
+    });
+
+    if (!proposal.aiWarningAcknowledgedAt) {
+      await transaction.worldAuditLog.create({
+        data: {
+          action: WorldAuditAction.AI_WARNING_RESOLVED,
+          actorId: input.actorId,
+          metadata: {
+            acknowledgedAt: snapshot.acknowledgedAt,
+            category: snapshot.category,
+            evidence: snapshot.evidence,
+            proposalId: proposal.id,
+            severity: snapshot.severity,
+            summary: snapshot.summary,
+          },
+          targetId: proposal.id,
+          targetType: 'PROPOSAL',
+          worldId: input.worldId,
+        },
+      });
+    }
+
+    return {
+      aiWarning: snapshot,
+      idempotent: Boolean(proposal.aiWarningAcknowledgedAt),
+    };
+  });
+}
+
 function buildDecisionPayload(input: {
-  aiWarningAcknowledged: boolean;
-  aiWarningSummary: string | null;
+  aiWarning: AiWarningSnapshot;
   outcome: ProposalDecisionOutcome;
   proposal: {
     baseCanonVersionId: string | null;
@@ -338,8 +548,13 @@ function buildDecisionPayload(input: {
 
   return {
     aiWarning: {
-      acknowledged: input.aiWarningAcknowledged,
-      summary: input.aiWarningSummary,
+      acknowledged: input.aiWarning.acknowledged,
+      acknowledgedAt: input.aiWarning.acknowledgedAt,
+      acknowledgmentRequired: input.aiWarning.acknowledgmentRequired,
+      category: input.aiWarning.category,
+      evidence: input.aiWarning.evidence,
+      severity: input.aiWarning.severity,
+      summary: input.aiWarning.summary,
     },
     approval: {
       denominator: input.tally.approvalDenominator,
@@ -398,9 +613,15 @@ export async function finalizeCanonDecision(
     const proposal = await transaction.proposal.findFirst({
       include: {
         aiReports: true,
+        author: {
+          select: {
+            id: true,
+          },
+        },
         votes: {
           select: {
             choice: true,
+            voterId: true,
           },
         },
       },
@@ -447,7 +668,9 @@ export async function finalizeCanonDecision(
       currentBible?.id &&
       proposal.baseCanonVersionId !== currentBible.id,
     );
-    const tally = tallyCanonVotes(proposal.votes);
+    const tally = tallyCanonVotes(proposal.votes, {
+      excludeVoterIds: proposalAuthorExclusion(proposal.authorId),
+    });
     const outcome = decideCanonOutcome({
       now,
       staleBaseAtDecision,
@@ -460,11 +683,19 @@ export async function finalizeCanonDecision(
     }
 
     const warning = aiWarningSnapshot(proposal);
+
+    if (warning.acknowledgmentRequired && !warning.acknowledged) {
+      throw new CanonVotingError(
+        409,
+        'AI_WARNING_ACKNOWLEDGMENT_REQUIRED',
+        'Major AI warnings must be explicitly acknowledged before finalization.',
+      );
+    }
+
     const decidedAt = now;
     const contentHash = proposal.contentHash ?? hashCanonicalJson(proposal.proposedContent);
     const payload = buildDecisionPayload({
-      aiWarningAcknowledged: warning.acknowledged,
-      aiWarningSummary: warning.summary,
+      aiWarning: warning,
       outcome,
       proposal: {
         ...proposal,
@@ -620,6 +851,19 @@ export async function createCanonTransactionOperation(
   };
 }
 
+function readHafTransactionId(row: HafOperationRow) {
+  const value = row.transaction_id ?? row.transactionId ?? row.trx_id;
+
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function readHafOperationIndex(row: HafOperationRow) {
+  const value = row.operation_id ?? row.operationIndex ?? row.op_pos;
+  const numeric = typeof value === 'string' ? Number(value) : value;
+
+  return typeof numeric === 'number' && Number.isInteger(numeric) ? numeric : null;
+}
+
 async function findConfirmedOperation(input: {
   blockNumber?: number | undefined;
   expectedOperation: ReturnType<typeof buildHiveLoreCustomJsonOperation>;
@@ -653,13 +897,23 @@ async function findConfirmedOperation(input: {
   });
 
   for (const row of page.operations) {
-    const operation = normalizeHafOperation(row);
+    if (readHafTransactionId(row) !== input.transactionId) {
+      continue;
+    }
 
-    if (
-      operation.transactionId === input.transactionId &&
-      operation.operationIndex === input.operationIndex
-    ) {
+    if (readHafOperationIndex(row) !== input.operationIndex) {
+      continue;
+    }
+
+    try {
+      const operation = normalizeHafOperation(row);
       return operation;
+    } catch (error) {
+      throw new CanonVotingError(
+        400,
+        'HIVE_OPERATION_INVALID',
+        error instanceof Error ? error.message : 'Invalid Hive operation.',
+      );
     }
   }
 

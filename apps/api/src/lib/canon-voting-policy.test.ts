@@ -19,6 +19,10 @@ function votes(...choices: VoteChoice[]) {
   return choices.map((choice) => ({ choice }));
 }
 
+function voterVotes(...entries: Array<[string, VoteChoice]>) {
+  return entries.map(([voterId, choice]) => ({ choice, voterId }));
+}
+
 describe('canon voting policy', () => {
   test('uses a 48 hour voting window and does not decide before the end', () => {
     assert.equal(votingEndsAt.toISOString(), '2026-08-12T00:00:00.000Z');
@@ -149,5 +153,43 @@ describe('canon voting policy', () => {
 
   test('canonical json hashing is deterministic across object key order', () => {
     assert.equal(hashCanonicalJson({ b: 2, a: 1 }), hashCanonicalJson({ a: 1, b: 2 }));
+  });
+
+  test('excludes proposal author votes from approval math and participation', () => {
+    const tally = tallyCanonVotes(
+      voterVotes(
+        ['author-1', VoteChoice.APPROVE],
+        ['reader-1', VoteChoice.APPROVE],
+        ['reader-2', VoteChoice.APPROVE],
+        ['reader-3', VoteChoice.APPROVE],
+        ['reader-4', VoteChoice.REJECT],
+        ['reader-5', VoteChoice.REJECT],
+      ),
+      { excludeVoterIds: new Set(['author-1']) },
+    );
+
+    assert.equal(tally.totalVotes, 5);
+    assert.equal(tally.approve, 3);
+    assert.equal(tally.reject, 2);
+    assert.equal(tally.approvalPercentageBps, 6_000);
+  });
+
+  test('legacy author votes cannot satisfy the five-vote minimum', () => {
+    const tally = tallyCanonVotes(
+      voterVotes(
+        ['author-1', VoteChoice.APPROVE],
+        ['reader-1', VoteChoice.APPROVE],
+        ['reader-2', VoteChoice.APPROVE],
+        ['reader-3', VoteChoice.APPROVE],
+        ['reader-4', VoteChoice.APPROVE],
+      ),
+      { excludeVoterIds: new Set(['author-1']) },
+    );
+
+    assert.equal(tally.totalVotes, 4);
+    assert.equal(
+      decideCanonOutcome({ now: afterEnd, tally, votingEndsAt }),
+      ProposalDecisionOutcome.REJECTED,
+    );
   });
 });

@@ -1,9 +1,10 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { env } from '../config/env.js';
 import { authenticateRequest, requireSession } from '../lib/auth-middleware.js';
 import {
+  acknowledgeProposalAiWarning,
   CanonVotingError,
   castCanonVote,
   confirmCanonTransaction,
@@ -93,6 +94,24 @@ function handleProposalCommentError(error: unknown, reply: FastifyReply) {
   throw error;
 }
 
+function proposalCommentRateLimitOptions(database: typeof prisma) {
+  return {
+    cache: env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE,
+    errorResponseBuilder: () => ({
+      code: 'COMMENT_RATE_LIMITED',
+      error: 'Too many proposal comments. Try again later.',
+      statusCode: 429,
+    }),
+    keyGenerator: async (request: FastifyRequest) => {
+      const user = await authenticateRequest(request, authOptions(database));
+
+      return user ? `proposal-comments:user:${user.id}` : `proposal-comments:ip:${request.ip}`;
+    },
+    max: env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX,
+    timeWindow: `${env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS} seconds`,
+  };
+}
+
 export async function registerProposalRoutes(
   app: FastifyInstance,
   options: RegisterProposalRoutesOptions = {},
@@ -171,7 +190,10 @@ export async function registerProposalRoutes(
   app.post(
     '/worlds/:worldId/proposals/:proposalId/comments',
     {
-      preHandler: requireSession(authOptions(database)),
+      preHandler: [
+        app.rateLimit(proposalCommentRateLimitOptions(database)),
+        requireSession(authOptions(database)),
+      ],
     },
     async (request, reply) => {
       const params = paramsSchema.safeParse(request.params);
@@ -244,6 +266,45 @@ export async function registerProposalRoutes(
           choice: body.data.choice,
           proposalId: params.data.proposalId,
           voterId: request.user.id,
+          worldId: params.data.worldId,
+        });
+      } catch (error) {
+        return handleCanonVotingError(error, reply);
+      }
+    },
+  );
+
+  app.post(
+    '/worlds/:worldId/proposals/:proposalId/ai-warning/acknowledge',
+    {
+      preHandler: requireSession(authOptions(database)),
+    },
+    async (request, reply) => {
+      const params = paramsSchema.safeParse(request.params);
+
+      if (!params.success) {
+        return reply.code(400).send({
+          code: 'INVALID_PROPOSAL_ROUTE',
+          error: 'Invalid proposal route.',
+        });
+      }
+
+      const authorized = await authorizeWorldPermission(
+        request,
+        reply,
+        params.data.worldId,
+        WORLD_PERMISSIONS.COMMENT_ON_AI_WARNING,
+        database,
+      );
+
+      if (!authorized || !request.user) {
+        return;
+      }
+
+      try {
+        return acknowledgeProposalAiWarning(database, {
+          actorId: request.user.id,
+          proposalId: params.data.proposalId,
           worldId: params.data.worldId,
         });
       } catch (error) {

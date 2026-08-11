@@ -9,6 +9,7 @@ import tseslint from 'typescript-eslint';
 const browserFiles = ['apps/web/**/*.{ts,tsx}'];
 const nodeFiles = [
   'apps/api/**/*.ts',
+  'apps/api/scripts/**/*.mjs',
   'packages/**/*.ts',
   '*.config.{js,mjs,ts}',
   'eslint.config.mjs',

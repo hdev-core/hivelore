@@ -392,9 +392,9 @@ Implemented contribution endpoints:
 Implemented proposal discussion endpoints:
 
 - `GET /worlds/:worldId/proposals/:proposalId/comments`: lists flat chronological off-chain proposal comments with cursor pagination. The proposal must belong to the route world. Deleted comments are returned as tombstones without the original body.
-- `POST /worlds/:worldId/proposals/:proposalId/comments`: requires authentication and the existing `VOTE_ON_PROPOSAL` world permission, derives the author from the verified session, trims plain-text body content, and enforces a 3,000-character maximum.
+- `POST /worlds/:worldId/proposals/:proposalId/comments`: requires authentication and the existing `VOTE_ON_PROPOSAL` world permission, derives the author from the verified session, trims plain-text body content, enforces a 3,000-character maximum, and rate-limits comment writes to 5 per verified user per minute by default.
 
-Proposal comments are stored in PostgreSQL as mutable discussion records. They are not Hive comments, not immutable canon records, and never count as AppVote rows, approval totals, proposal outcomes, reputation, rewards, or canon status. Soft deletion preserves the discussion audit shape while normal API responses hide moderated comment bodies.
+Proposal comments are stored in PostgreSQL as mutable discussion records. They are not Hive comments, not immutable canon records, and never count as AppVote rows, approval totals, proposal outcomes, reputation, rewards, or canon status. Soft deletion preserves the discussion audit shape while normal API responses hide moderated comment bodies. Comment write rate limits use the existing PostgreSQL-backed Fastify rate-limit store in the API app, so limits are shared across API instances that use the same database.
 
 ---
 
@@ -670,6 +670,27 @@ npm run db:migrate
 Review generated SQL under `apps/api/prisma/migrations`, commit the schema and migration together, and use `npm run db:migrate:deploy` in hosted API environments. Do not manually create production tables in the Supabase dashboard as a substitute for migrations.
 
 Feature branches must include migration files. Resolve migration conflicts before merge.
+
+### Baseline Migration History
+
+`20260718131500_init_hivelore_schema` is the authoritative Prisma baseline. A later historical migration, `20260718154842_init`, accidentally duplicated the same baseline SQL and caused fresh PostgreSQL databases to fail during `prisma migrate deploy` when the second migration tried to recreate enums, tables, indexes, and foreign keys that already existed.
+
+The duplicate migration directory is intentionally retained, but its SQL body is a no-op. This preserves the historical migration name while allowing a new developer, CI job, preview environment, or empty hosted database to run:
+
+```bash
+npm run db:migrate:deploy
+npm run db:generate
+```
+
+Existing databases that already recorded both baseline migrations do not need data changes before deploying this repository repair. Prisma may warn that `20260718154842_init` was modified after it was applied because the stored checksum reflects the old duplicate SQL. That warning is expected for those environments; do not reset or recreate the database to clear it. If an environment has only the first baseline recorded, the retained no-op second migration can be applied normally. If an environment has schema objects present but inconsistent or failed migration history, inspect `_prisma_migrations` and the actual schema first, then use the narrow Prisma recovery procedure appropriate to that state.
+
+CI validates the full migration history against a disposable PostgreSQL database with:
+
+```bash
+TEST_DATABASE_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres npm run db:migrate:check:fresh
+```
+
+The check creates a uniquely named `hivelore_migrate_check_*` database, runs `prisma migrate deploy` twice, compares the deployed schema with `schema.prisma`, generates Prisma Client, runs the development seed, smoke-checks representative tables/enums/constraints/indexes, and drops only the generated disposable database.
 
 ### Seed Behavior
 

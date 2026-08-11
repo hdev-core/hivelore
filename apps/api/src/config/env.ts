@@ -34,6 +34,9 @@ const envSchema = z.object({
   AUTH_CHALLENGE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   AUTH_COOKIE_DOMAIN: z.string().optional(),
   AUTH_COOKIE_SECURE: optionalBooleanEnv,
+  PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE: z.coerce.number().int().positive().default(10_000),
+  PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
   HIVE_RPC_URL: z.string().url().default('https://api.hive.blog'),
   HIVE_NETWORK: z.enum(['mainnet', 'testnet']).default('mainnet'),
   HIVE_MAINNET_CHAIN_ID: z

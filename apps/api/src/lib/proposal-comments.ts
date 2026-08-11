@@ -108,6 +108,40 @@ function serializeComment(comment: CommentWithAuthor) {
   };
 }
 
+function proposalCommentVisibilityWhere(input: {
+  proposalId: string;
+}): Prisma.ProposalCommentWhereInput {
+  return {
+    proposalId: input.proposalId,
+  };
+}
+
+function proposalCommentCursorWhere(
+  cursor: CommentCursor | null,
+): Prisma.ProposalCommentWhereInput {
+  if (!cursor) {
+    return {};
+  }
+
+  const cursorDate = new Date(cursor.createdAt);
+
+  return {
+    OR: [
+      {
+        createdAt: {
+          gt: cursorDate,
+        },
+      },
+      {
+        createdAt: cursorDate,
+        id: {
+          gt: cursor.id,
+        },
+      },
+    ],
+  };
+}
+
 async function assertProposalInWorld(
   database: ProposalCommentDatabase,
   input: { proposalId: string; worldId: string },
@@ -140,26 +174,10 @@ export async function listProposalComments(
 
   const pageSize = normalizePageSize(input.pageSize);
   const cursor = input.cursor ? decodeProposalCommentCursor(input.cursor) : null;
-  const cursorDate = cursor ? new Date(cursor.createdAt) : null;
-  const where: Prisma.ProposalCommentWhereInput = {
-    proposalId: input.proposalId,
-    ...(cursor && cursorDate
-      ? {
-          OR: [
-            {
-              createdAt: {
-                gt: cursorDate,
-              },
-            },
-            {
-              createdAt: cursorDate,
-              id: {
-                gt: cursor.id,
-              },
-            },
-          ],
-        }
-      : {}),
+  const visibilityWhere = proposalCommentVisibilityWhere({ proposalId: input.proposalId });
+  const pageWhere: Prisma.ProposalCommentWhereInput = {
+    ...visibilityWhere,
+    ...proposalCommentCursorWhere(cursor),
   };
   const [comments, commentCount] = await Promise.all([
     database.proposalComment.findMany({
@@ -175,13 +193,10 @@ export async function listProposalComments(
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: pageSize + 1,
-      where,
+      where: pageWhere,
     }),
     database.proposalComment.count({
-      where: {
-        deletedAt: null,
-        proposalId: input.proposalId,
-      },
+      where: visibilityWhere,
     }),
   ]);
 

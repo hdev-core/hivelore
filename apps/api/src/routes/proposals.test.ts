@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import Fastify from 'fastify';
+import rateLimit from '@fastify/rate-limit';
 
 import { env } from '../config/env.js';
 import { PlatformRole, ProposalStatus, WorldRole } from '../generated/prisma/enums.js';
@@ -90,6 +91,13 @@ function createDatabase() {
     },
     {
       authorId: author.id,
+      id: 'proposal-same-world',
+      status: ProposalStatus.VOTING,
+      votingEndsAt: now(48 * 60 * 60 * 1000),
+      worldId: 'world-1',
+    },
+    {
+      authorId: author.id,
       id: 'proposal-2',
       status: ProposalStatus.VOTING,
       votingEndsAt: now(48 * 60 * 60 * 1000),
@@ -138,8 +146,16 @@ function createDatabase() {
       async update() {
         touchedVotes.push('update');
       },
-      async upsert() {
+      async upsert(args: { create: { choice: string; proposalId: string; voterId: string } }) {
         touchedVotes.push('upsert');
+        const vote = {
+          ...args.create,
+          createdAt: now(),
+          id: `vote-${touchedVotes.length}`,
+          updatedAt: now(),
+        };
+        appVotes.push(vote);
+        return vote;
       },
     },
     proposal: {
@@ -228,7 +244,7 @@ function createDatabase() {
         }
 
         return {
-          expiresAt: new Date('2026-08-11T13:00:00.000Z'),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           revokedAt: null,
           userId: args.where.id.replace('session-', ''),
         };
@@ -248,6 +264,9 @@ function createDatabase() {
         );
       },
     },
+    $transaction<T>(callback: (transaction: unknown) => Promise<T>) {
+      return callback(database);
+    },
   };
 
   return {
@@ -261,6 +280,9 @@ function createDatabase() {
 
 async function createApp(database: ReturnType<typeof createDatabase>['database']) {
   const app = Fastify();
+  await app.register(rateLimit, {
+    global: false,
+  });
   await registerProposalRoutes(app, {
     database: database as never,
   });
@@ -350,7 +372,7 @@ describe('proposal comment routes', () => {
       url: '/worlds/world-1/proposals/missing/comments',
     });
     const wrongWorld = await app.inject({
-      headers: authHeader(),
+      headers: authHeader(author),
       method: 'POST',
       payload: { body: 'Hello' },
       url: '/worlds/world-2/proposals/proposal-1/comments',
@@ -363,7 +385,7 @@ describe('proposal comment routes', () => {
     assert.equal(maxLength.statusCode, 201);
     assert.equal(oversized.statusCode, 400);
     assert.equal(missingProposal.statusCode, 404);
-    assert.equal(wrongWorld.statusCode, 403);
+    assert.equal(wrongWorld.statusCode, 403, wrongWorld.body);
     assert.equal(state.comments.length, 1);
     await app.close();
   });
@@ -421,7 +443,7 @@ describe('proposal comment routes', () => {
       ['comment-a'],
     );
     assert.equal(firstPage.json().pageInfo.hasMore, true);
-    assert.equal(firstPage.json().totalCount, 1);
+    assert.equal(firstPage.json().totalCount, 2);
     assert.equal(secondPage.statusCode, 200);
     assert.deepEqual(
       secondPage
@@ -430,7 +452,66 @@ describe('proposal comment routes', () => {
       [['comment-b', null]],
     );
     assert.equal(secondPage.json().comments[0].isDeleted, true);
+    assert.equal(secondPage.json().comments[0].body, null);
+    assert.equal(secondPage.json().pageInfo.hasMore, false);
+    assert.equal(secondPage.json().pageInfo.nextCursor, null);
+    assert.equal(secondPage.json().totalCount, 2);
     assert.equal(cappedPage.json().comments.length, 2);
+    assert.equal(cappedPage.json().totalCount, 2);
+    assert.equal(cappedPage.json().pageInfo.hasMore, false);
+    await app.close();
+  });
+
+  test('comment write rate limit is per authenticated user across proposals and does not affect reads or votes', async () => {
+    const state = createDatabase();
+    const app = await createApp(state.database);
+
+    for (let index = 0; index < 5; index += 1) {
+      const response = await app.inject({
+        headers: authHeader(reader),
+        method: 'POST',
+        payload: { body: `Allowed comment ${index}` },
+        url:
+          index === 4
+            ? '/worlds/world-1/proposals/proposal-same-world/comments'
+            : '/worlds/world-1/proposals/proposal-1/comments',
+      });
+
+      assert.equal(response.statusCode, 201);
+    }
+
+    const limited = await app.inject({
+      headers: authHeader(reader),
+      method: 'POST',
+      payload: { body: 'This body must not be stored or echoed.' },
+      url: '/worlds/world-1/proposals/proposal-same-world/comments',
+    });
+    const otherUser = await app.inject({
+      headers: authHeader(author),
+      method: 'POST',
+      payload: { body: 'Independent author allowance.' },
+      url: '/worlds/world-1/proposals/proposal-1/comments',
+    });
+    const readAfterLimit = await app.inject({
+      method: 'GET',
+      url: '/worlds/world-1/proposals/proposal-1/comments',
+    });
+    const voteAfterLimit = await app.inject({
+      headers: authHeader(reader),
+      method: 'POST',
+      payload: { choice: 'REJECT' },
+      url: '/worlds/world-1/proposals/proposal-1/votes',
+    });
+
+    assert.equal(limited.statusCode, 429, limited.body);
+    assert.equal(limited.json().code, 'COMMENT_RATE_LIMITED');
+    assert.equal(limited.json().error.includes('This body'), false);
+    assert.ok(limited.headers['retry-after']);
+    assert.equal(state.comments.length, 6);
+    assert.equal(otherUser.statusCode, 201);
+    assert.equal(readAfterLimit.statusCode, 200);
+    assert.equal(voteAfterLimit.statusCode, 200, voteAfterLimit.body);
+    assert.equal(state.appVotes.length, 1);
     await app.close();
   });
 

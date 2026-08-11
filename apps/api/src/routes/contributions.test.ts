@@ -424,7 +424,7 @@ function createDatabase() {
         }
 
         return {
-          expiresAt: new Date('2026-08-11T13:00:00.000Z'),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           revokedAt: null,
           userId: args.where.id.replace('session-', ''),
         };

@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingState } from '@/components/states/loading-state';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  acknowledgeProposalAiWarning,
   castProposalVote,
   confirmCanonTransaction,
   createProposalComment,
@@ -317,6 +318,19 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
     },
   });
 
+  const acknowledgeAiWarningMutation = useMutation({
+    mutationFn: () =>
+      acknowledgeProposalAiWarning({
+        accessToken: accessToken ?? '',
+        proposalId,
+        worldId,
+      }),
+    onSuccess: () => {
+      setMessage('AI warning acknowledged.');
+      void invalidateProposal();
+    },
+  });
+
   const signMutation = useMutation({
     mutationFn: async () => {
       const operation = await createCanonTransaction({
@@ -404,8 +418,18 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
   const approvalProgress =
     proposal.tally.approvalDenominator > 0 ? proposal.tally.approvalPercentageBps / 100 : 0;
   const participationProgress = (proposal.tally.totalVotes / 5) * 100;
-  const canVote = Boolean(accessToken) && proposal.status === 'VOTING' && !votingClosed;
-  const canFinalize = Boolean(accessToken) && proposal.status === 'VOTING' && votingClosed;
+  const isAuthor = currentUser?.id === proposal.author.id;
+  const canVote =
+    Boolean(accessToken) && proposal.status === 'VOTING' && !votingClosed && !isAuthor;
+  const canAcknowledgeAiWarning =
+    Boolean(accessToken) &&
+    proposal.aiWarning.acknowledgmentRequired &&
+    !proposal.aiWarning.acknowledged;
+  const canFinalize =
+    Boolean(accessToken) &&
+    proposal.status === 'VOTING' &&
+    votingClosed &&
+    (!proposal.aiWarning.acknowledgmentRequired || proposal.aiWarning.acknowledged);
   const canSign =
     Boolean(accessToken) &&
     proposal.decision?.outcome === 'APPROVED_FOR_PUBLICATION' &&
@@ -424,7 +448,7 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
           <Badge variant={statusVariant(proposal.status)}>
             {proposal.status.replaceAll('_', ' ')}
           </Badge>
-          {proposal.aiWarning.acknowledged ? (
+          {proposal.aiWarning.acknowledgmentRequired ? (
             <Badge variant="ai-warning">Major AI warning</Badge>
           ) : null}
           {proposal.branchLabel ? (
@@ -487,8 +511,12 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
           <div className="grid gap-3 rounded-panel border border-border bg-surface p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-xl font-semibold tracking-normal">AI Report</h2>
-              {proposal.aiWarning.acknowledged ? (
-                <Badge variant="ai-warning">Warning preserved</Badge>
+              {proposal.aiWarning.acknowledgmentRequired ? (
+                <Badge variant="ai-warning">
+                  {proposal.aiWarning.acknowledged
+                    ? 'Warning acknowledged'
+                    : 'Acknowledgment required'}
+                </Badge>
               ) : null}
             </div>
             <p className="text-sm leading-7 text-muted-foreground">
@@ -692,9 +720,11 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
               </p>
               <p className="text-sm text-muted-foreground">
                 Current vote:{' '}
-                {proposal.currentUserVote?.choice
-                  ? voteLabels[proposal.currentUserVote.choice]
-                  : 'None'}
+                {isAuthor
+                  ? 'Authors cannot vote on their own proposals'
+                  : proposal.currentUserVote?.choice
+                    ? voteLabels[proposal.currentUserVote.choice]
+                    : 'None'}
               </p>
             </div>
 
@@ -720,10 +750,23 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
                 Sign in to vote or complete governance actions.
               </p>
             ) : null}
+            {isAuthor ? (
+              <p className="text-sm text-muted-foreground">
+                Proposal authors are excluded from the eligible vote tally.
+              </p>
+            ) : null}
           </div>
 
           <div className="grid gap-3 rounded-panel border border-border bg-surface p-5">
             <h2 className="text-xl font-semibold tracking-normal">Governance Actions</h2>
+            <Button
+              disabled={!canAcknowledgeAiWarning}
+              isLoading={acknowledgeAiWarningMutation.isPending}
+              onClick={() => acknowledgeAiWarningMutation.mutate()}
+              variant="outline"
+            >
+              Acknowledge AI Warning
+            </Button>
             <Button
               disabled={!canFinalize}
               isLoading={finalizeMutation.isPending}
