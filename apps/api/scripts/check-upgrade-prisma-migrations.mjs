@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +68,27 @@ function getBaseApiWorkspaceDir(schemaPath) {
   return path.dirname(path.dirname(path.resolve(schemaPath)));
 }
 
+async function createBasePrismaConfig(apiWorkspaceDir) {
+  const configPath = path.join(apiWorkspaceDir, 'prisma.config.ts');
+
+  await writeFile(
+    configPath,
+    `
+export default {
+  schema: 'prisma/schema.prisma',
+  migrations: {
+    path: 'prisma/migrations',
+  },
+  datasource: {
+    url: process.env.DIRECT_URL,
+  },
+};
+`.trimStart(),
+  );
+
+  return configPath;
+}
+
 async function withAdminClient(callback) {
   const client = new Client({ connectionString: adminUrl });
   await client.connect();
@@ -107,16 +129,32 @@ try {
 
   console.log('Deploying base branch migration history');
   const baseApiWorkspaceDir = getBaseApiWorkspaceDir(baseSchema);
-  const baseStatus = runPrisma(['migrate', 'deploy', '--schema', baseSchema], {
-    allowFailure: true,
-    cwd: baseApiWorkspaceDir,
-  });
+  const baseConfig = await createBasePrismaConfig(baseApiWorkspaceDir);
+  const baseStatus = runPrisma(
+    ['migrate', 'deploy', '--schema', baseSchema, '--config', baseConfig],
+    {
+      allowFailure: true,
+      cwd: baseApiWorkspaceDir,
+    },
+  );
 
   if (baseStatus !== 0) {
     console.log(`Resolving historical failed migration ${repairedMigration} as rolled back`);
-    runPrisma(['migrate', 'resolve', '--rolled-back', repairedMigration, '--schema', baseSchema], {
-      cwd: baseApiWorkspaceDir,
-    });
+    runPrisma(
+      [
+        'migrate',
+        'resolve',
+        '--rolled-back',
+        repairedMigration,
+        '--schema',
+        baseSchema,
+        '--config',
+        baseConfig,
+      ],
+      {
+        cwd: baseApiWorkspaceDir,
+      },
+    );
   }
 
   console.log('Deploying repaired migration history from this branch');
