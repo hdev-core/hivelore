@@ -203,8 +203,7 @@ try {
   runPrisma([
     'migrate',
     'diff',
-    '--from-url',
-    directUrl,
+    '--from-config-datasource',
     '--to-schema-datamodel',
     'prisma/schema.prisma',
     '--exit-code',
