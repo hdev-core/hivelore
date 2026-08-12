@@ -23,7 +23,7 @@ import {
 } from '../lib/proposal-comments.js';
 import { authorizeWorldPermission } from '../lib/world-authorization.js';
 import type { WorldMembershipLookup } from '../lib/world-authorization.js';
-import { roleHasWorldPermission, WORLD_PERMISSIONS } from '../lib/world-permissions.js';
+import { WORLD_PERMISSIONS } from '../lib/world-permissions.js';
 import { createHiveReliableBroadcaster } from '../lib/hive/client.js';
 import {
   HiveBroadcastError,
@@ -140,45 +140,22 @@ function proposalCommentRateLimitOptions(database: typeof prisma) {
   };
 }
 
-async function authorizeCanonTransactionPermission(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  database: WorldMembershipLookup,
-  worldId: string,
-) {
-  if (!request.user) {
-    return false;
-  }
+function canonTransactionConfirmRateLimitOptions(database: typeof prisma) {
+  return {
+    cache: env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE,
+    errorResponseBuilder: () => ({
+      code: 'CANON_TRANSACTION_CONFIRM_RATE_LIMITED',
+      error: 'Too many canon transaction confirmations. Try again later.',
+      statusCode: 429,
+    }),
+    keyGenerator: async (request: FastifyRequest) => {
+      const user = await authenticateRequest(request, authOptions(database));
 
-  const membership = await database.worldMembership.findUnique({
-    select: {
-      id: true,
-      revokedAt: true,
-      role: true,
-      userId: true,
-      worldId: true,
+      return user ? `canon-confirm:user:${user.id}` : `canon-confirm:ip:${request.ip}`;
     },
-    where: {
-      revokedAt: null,
-      worldId_userId: {
-        userId: request.user.id,
-        worldId,
-      },
-    },
-  });
-
-  if (!membership || !roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.SUBMIT_PROPOSAL)) {
-    await reply.code(403).send({
-      code: 'INSUFFICIENT_WORLD_PERMISSIONS',
-      error: 'Insufficient world permissions.',
-    });
-
-    return false;
-  }
-
-  request.worldMembership = membership;
-
-  return true;
+    max: 3,
+    timeWindow: '60 seconds',
+  };
 }
 
 export async function registerProposalRoutes(
@@ -443,11 +420,12 @@ export async function registerProposalRoutes(
         });
       }
 
-      const authorized = await authorizeCanonTransactionPermission(
+      const authorized = await authorizeWorldPermission(
         request,
         reply,
-        database,
         params.data.worldId,
+        WORLD_PERMISSIONS.SUBMIT_PROPOSAL,
+        database,
       );
 
       if (!authorized) {
@@ -469,7 +447,10 @@ export async function registerProposalRoutes(
   app.post(
     '/worlds/:worldId/proposals/:proposalId/canon-transaction/confirm',
     {
-      preHandler: requireSession(authOptions(database)),
+      preHandler: [
+        app.rateLimit(canonTransactionConfirmRateLimitOptions(database)),
+        requireSession(authOptions(database)),
+      ],
     },
     async (request, reply) => {
       const params = paramsSchema.safeParse(request.params);
@@ -489,11 +470,12 @@ export async function registerProposalRoutes(
         });
       }
 
-      const authorized = await authorizeCanonTransactionPermission(
+      const authorized = await authorizeWorldPermission(
         request,
         reply,
-        database,
         params.data.worldId,
+        WORLD_PERMISSIONS.SUBMIT_PROPOSAL,
+        database,
       );
 
       if (!authorized) {

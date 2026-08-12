@@ -38,19 +38,12 @@ const envSchema = z.object({
   PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
   PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
   HIVE_RPC_URL: z.string().url().default('https://api.hive.blog'),
-  HIVE_NETWORK: z.enum(['mainnet', 'testnet']).default('mainnet'),
   HIVE_MAINNET_CHAIN_ID: z
     .string()
     .regex(/^[a-f0-9]{64}$/i)
     .default('beeab0de00000000000000000000000000000000000000000000000000000000'),
   HIVE_MAINNET_RPC_NODES: z.string().min(1).default('https://api.hive.blog'),
   HIVE_MAINNET_HAF_URL: z.string().url().default('https://api.hive.blog/hafbe-api'),
-  HIVE_TESTNET_CHAIN_ID: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/i)
-    .default('18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e'),
-  HIVE_TESTNET_RPC_NODES: z.string().min(1).default('https://testnet.openhive.network'),
-  HIVE_TESTNET_HAF_URL: z.string().url().optional(),
   HIVE_BROADCAST_MAX_ATTEMPTS: z.coerce
     .number()
     .int()

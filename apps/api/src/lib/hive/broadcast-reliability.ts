@@ -5,6 +5,7 @@ import { verifyHiveLoreOperation } from './verification.js';
 import { normalizeHafOperation } from './projection.js';
 import { HafClient } from './haf-client.js';
 import { HiveWaxClient } from './wax-client.js';
+import { HIVE_CUSTOM_JSON_OPERATION_TYPE } from './constants.js';
 import {
   DEFAULT_HIVE_RETRY_CONFIG,
   type HiveNetworkConfig,
@@ -55,16 +56,17 @@ export class HiveBroadcastError extends Error {
 
 export interface HiveBroadcastTransport {
   broadcast(nodeUrl: string, transaction: ApiTransaction, signal?: AbortSignal): Promise<void>;
-  getTransactionOperations?(
-    transactionId: string,
-    nodeUrl?: string,
-    signal?: AbortSignal,
-  ): Promise<HafOperationRow[]>;
+  getTransaction?(params: {
+    transactionId: string;
+    nodeUrl?: string;
+    signal?: AbortSignal;
+  }): Promise<HafOperationRow[] | null>;
   searchBlocks(params: {
     fromBlock?: number;
     toBlock?: number;
     page?: number;
     pageSize?: number;
+    operationTypes?: number[];
     nodeUrl?: string;
     signal?: AbortSignal;
   }): Promise<HafOperationRow[] | { operations: HafOperationRow[]; totalPages?: number }>;
@@ -98,56 +100,93 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
     toBlock?: number;
     page?: number;
     pageSize?: number;
+    operationTypes?: number[];
+    signal?: AbortSignal;
   }) {
-    const client = new HafClient(this.network.hafUrl ? { baseUrl: this.network.hafUrl } : {});
+    const client = new HafClient(
+      this.network.hafUrl
+        ? {
+            baseUrl: this.network.hafUrl,
+            requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs,
+          }
+        : { requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs },
+    );
     return client.searchBlocks({
       ...(params.fromBlock === undefined ? {} : { fromBlock: params.fromBlock }),
+      ...(params.operationTypes === undefined ? {} : { operationTypes: params.operationTypes }),
       ...(params.page === undefined ? {} : { page: params.page }),
       ...(params.pageSize === undefined ? {} : { pageSize: params.pageSize }),
       ...(params.toBlock === undefined ? {} : { toBlock: params.toBlock }),
+      ...(params.signal ? { signal: params.signal } : {}),
     });
   }
 
-  async getTransactionOperations(
-    transactionId: string,
-    nodeUrl?: string,
-    signal?: AbortSignal,
-  ): Promise<HafOperationRow[]> {
-    const rpcUrl = nodeUrl ?? this.network.rpcNodes[0];
+  async getHeadBlock(_nodeUrl?: string, signal?: AbortSignal): Promise<number> {
+    const client = new HafClient(
+      this.network.hafUrl
+        ? {
+            baseUrl: this.network.hafUrl,
+            requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs,
+          }
+        : { requestTimeoutMs: DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs },
+    );
 
-    if (!rpcUrl) {
+    return client.getHeadBlock(signal);
+  }
+
+  async getTransaction(params: {
+    transactionId: string;
+    nodeUrl?: string;
+    signal?: AbortSignal;
+  }): Promise<HafOperationRow[] | null> {
+    const nodeUrl = params.nodeUrl ?? this.network.rpcNodes[0];
+
+    if (!nodeUrl) {
       throw new HiveBroadcastError(
         'NETWORK_CONFIGURATION_ERROR',
-        'No Hive RPC node is available for transaction lookup.',
+        'No Hive RPC nodes are configured for transaction lookup.',
         'permanent',
       );
     }
 
-    const transaction = await postHiveJsonRpc<HiveTransactionLookupResult>(
-      rpcUrl,
-      'account_history_api.get_transaction',
-      { id: transactionId, include_reversible: true },
-      signal,
-    );
-
-    const operationsInBlock = await postHiveJsonRpc<{ ops: HafOperationRow[] }>(
-      rpcUrl,
-      'account_history_api.get_ops_in_block',
-      {
-        block_num: transaction.block_num,
-        include_reversible: true,
-        only_virtual: false,
+    const response = await fetch(nodeUrl, {
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'condenser_api.get_transaction',
+        params: [params.transactionId],
+      }),
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
       },
-      signal,
-    );
+      method: 'POST',
+      signal: createTimeoutSignal(DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs, params.signal),
+    });
 
-    return operationsInBlock.ops.filter((row) => rowMatchesTransaction(row, transactionId));
-  }
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(`Hive transaction lookup failed: ${response.status} ${response.statusText}`),
+        { status: response.status },
+      );
+    }
 
-  async getHeadBlock(): Promise<number> {
-    const client = new HafClient(this.network.hafUrl ? { baseUrl: this.network.hafUrl } : {});
+    const body = (await response.json()) as {
+      error?: { message?: string };
+      result?: unknown;
+    };
 
-    return client.getHeadBlock();
+    if (body.error) {
+      const message = body.error.message ?? 'Hive transaction lookup failed.';
+
+      if (message.toLowerCase().includes('unknown transaction')) {
+        return null;
+      }
+
+      throw new Error(message);
+    }
+
+    return transactionLookupToRows(body.result, params.transactionId);
   }
 }
 
@@ -263,6 +302,7 @@ export class HiveReliableBroadcaster {
 
       attempts += 1;
       const nodeUrl = this.pool.current();
+      const remainingDeadlineMs = this.retry.totalDeadlineMs - (this.clock.now() - startedAt);
 
       try {
         await this.transport.broadcast(nodeUrl, input.transaction, input.signal);
@@ -272,6 +312,7 @@ export class HiveReliableBroadcaster {
           attempts,
           expectedOperation: input.expectedOperation,
           expectedSigner: input.expectedSigner,
+          confirmationTimeoutMs: Math.min(this.retry.confirmationTimeoutMs, remainingDeadlineMs),
           nodeUrl,
           signal: input.signal,
           transactionId: input.transactionId,
@@ -290,6 +331,10 @@ export class HiveReliableBroadcaster {
         const confirmation = ambiguous
           ? await this.tryConfirm({
               attempts,
+              confirmationTimeoutMs: Math.min(
+                this.retry.confirmationTimeoutMs,
+                Math.max(0, this.retry.totalDeadlineMs - (this.clock.now() - startedAt)),
+              ),
               expectedOperation: input.expectedOperation,
               expectedSigner: input.expectedSigner,
               nodeUrl,
@@ -370,6 +415,7 @@ export class HiveReliableBroadcaster {
     transactionId: string;
     expectedSigner?: string | undefined;
     expectedOperation?: HiveLoreOperation | undefined;
+    confirmationTimeoutMs?: number | undefined;
     nodeUrl: string;
     signal?: AbortSignal | undefined;
   }): Promise<ConfirmedBroadcastResult> {
@@ -396,11 +442,12 @@ export class HiveReliableBroadcaster {
     transactionId: string;
     expectedSigner?: string | undefined;
     expectedOperation?: HiveLoreOperation | undefined;
+    confirmationTimeoutMs?: number | undefined;
     nodeUrl: string;
     signal?: AbortSignal | undefined;
   }): Promise<ConfirmedBroadcastResult | null> {
     const operation = await pollForConfirmedOperation({
-      confirmationTimeoutMs: this.retry.confirmationTimeoutMs,
+      confirmationTimeoutMs: input.confirmationTimeoutMs ?? this.retry.confirmationTimeoutMs,
       clock: this.clock,
       nodePool: this.confirmationPool,
       input,
@@ -512,21 +559,31 @@ export async function pollForConfirmedOperation(input: {
     const nodeUrl = input.nodePool?.current();
 
     try {
-      const directRows = input.transport.getTransactionOperations
-        ? await input.transport.getTransactionOperations(
-            input.input.transactionId,
-            nodeUrl,
-            input.input.signal,
-          )
-        : [];
-      const directConfirmed = findAndVerifyOperation(directRows, input.input);
+      if (input.transport.getTransaction) {
+        const transactionRows = await input.transport.getTransaction({
+          ...(nodeUrl ? { nodeUrl } : {}),
+          ...(input.input.signal ? { signal: input.input.signal } : {}),
+          transactionId: input.input.transactionId,
+        });
 
-      if (directConfirmed) {
+        if (transactionRows) {
+          const confirmed = findAndVerifyOperation(transactionRows, input.input);
+
+          if (confirmed) {
+            if (nodeUrl) {
+              input.nodePool?.reportSuccess(nodeUrl);
+            }
+
+            return confirmed;
+          }
+        }
+
         if (nodeUrl) {
           input.nodePool?.reportSuccess(nodeUrl);
         }
 
-        return directConfirmed;
+        await input.clock.sleep(input.pollIntervalMs, input.input.signal);
+        continue;
       }
 
       const head = fromBlock
@@ -543,6 +600,7 @@ export async function pollForConfirmedOperation(input: {
           await input.transport.searchBlocks({
             fromBlock: searchFromBlock,
             ...(nodeUrl ? { nodeUrl } : {}),
+            operationTypes: [HIVE_CUSTOM_JSON_OPERATION_TYPE],
             page,
             pageSize,
             toBlock: searchToBlock,
@@ -678,6 +736,61 @@ function normalizeSearchPage(
   return Array.isArray(page) ? { operations: page } : page;
 }
 
+function transactionLookupToRows(result: unknown, transactionId: string): HafOperationRow[] | null {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+
+  const transaction = result as {
+    block_num?: number | string;
+    blockNumber?: number | string;
+    block?: number | string;
+    expiration?: string;
+    operations?: unknown;
+    timestamp?: string;
+    block_time?: string;
+    transaction_id?: string;
+    transactionId?: string;
+    trx_id?: string;
+  };
+
+  if (!Array.isArray(transaction.operations)) {
+    return [];
+  }
+
+  const resolvedTransactionId =
+    transaction.transaction_id ?? transaction.transactionId ?? transaction.trx_id ?? transactionId;
+  const timestamp = transaction.timestamp ?? transaction.block_time ?? transaction.expiration;
+
+  return transaction.operations.map((operationValue, index) => {
+    const blockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
+
+    return {
+      ...(blockNumber === undefined ? {} : { block_num: blockNumber }),
+      operation: normalizeCondenserOperation(operationValue),
+      operation_id: index,
+      ...(timestamp === undefined ? {} : { timestamp }),
+      transaction_id: resolvedTransactionId,
+    };
+  });
+}
+
+function normalizeCondenserOperation(operationValue: unknown): unknown {
+  if (Array.isArray(operationValue) && operationValue.length >= 2) {
+    const [type, value] = operationValue;
+
+    if (type === 'comment') {
+      return { comment_operation: value };
+    }
+
+    if (type === 'custom_json') {
+      return { custom_json_operation: value };
+    }
+  }
+
+  return operationValue;
+}
+
 function rowMatchesTransaction(row: HafOperationRow, transactionId: string) {
   return (row.transaction_id ?? row.transactionId ?? row.trx_id) === transactionId;
 }
@@ -693,50 +806,6 @@ function rowMatchesOperationIndex(row: HafOperationRow, operationIndex: number |
   return numericIndex === operationIndex;
 }
 
-interface HiveTransactionLookupResult {
-  block_num: number;
-  operations: unknown[];
-  transaction_id: string;
-  transaction_num?: number;
-}
-
-async function postHiveJsonRpc<T>(
-  nodeUrl: string,
-  method: string,
-  params: Record<string, unknown>,
-  signal?: AbortSignal,
-): Promise<T> {
-  const requestInit: RequestInit = {
-    body: JSON.stringify({
-      id: 1,
-      jsonrpc: '2.0',
-      method,
-      params,
-    }),
-    headers: {
-      'content-type': 'application/json',
-    },
-    method: 'POST',
-    ...(signal ? { signal } : {}),
-  };
-  const response = await fetch(nodeUrl, requestInit);
-
-  if (!response.ok) {
-    throw Object.assign(
-      new Error(`Hive RPC request failed: ${response.status} ${response.statusText}`),
-      { status: response.status },
-    );
-  }
-
-  const body = (await response.json()) as { error?: { message?: string }; result?: unknown };
-
-  if (body.error) {
-    throw new Error(body.error.message ?? 'Hive RPC request failed.');
-  }
-
-  return body.result as T;
-}
-
 function throwIfAborted(signal: AbortSignal | undefined) {
   if (signal?.aborted) {
     throw new HiveBroadcastError(
@@ -745,6 +814,30 @@ function throwIfAborted(signal: AbortSignal | undefined) {
       'unknown',
     );
   }
+}
+
+function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (parentSignal?.aborted) {
+    clearTimeout(timeout);
+    controller.abort();
+    return controller.signal;
+  }
+
+  parentSignal?.addEventListener(
+    'abort',
+    () => {
+      clearTimeout(timeout);
+      controller.abort();
+    },
+    { once: true },
+  );
+
+  controller.signal.addEventListener('abort', () => clearTimeout(timeout), { once: true });
+
+  return controller.signal;
 }
 
 const systemClock = {

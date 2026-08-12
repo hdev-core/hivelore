@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import { ContributionKind, ContributionStatus } from '../generated/prisma/enums.js';
 import { requireSession } from '../lib/auth-middleware.js';
+import type { SessionVerificationDatabase } from '../lib/auth-sessions.js';
 import {
   ContributionError,
   createContribution,
@@ -58,10 +59,10 @@ const listContributionsQuerySchema = z.object({
 });
 
 type RegisterContributionRoutesOptions = {
-  database?: ContributionDatabase & WorldMembershipLookup;
+  database?: ContributionDatabase & WorldMembershipLookup & SessionVerificationDatabase;
 };
 
-function authOptions(database: ContributionDatabase) {
+function authOptions(database: SessionVerificationDatabase) {
   return {
     audience: env.AUTH_JWT_AUDIENCE,
     database,

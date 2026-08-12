@@ -12,7 +12,9 @@ enum LoreType {
   CHARACTER
   LOCATION
   FACTION
+  QUEST
   EVENT
+  STORY
   ARTIFACT
   HISTORY
   RULE
@@ -161,6 +163,11 @@ enum WorldAuditAction {
   CANON_DECISION_FINALIZED
   CANON_DECISION_CONFIRMED
   WORLD_BIBLE_UPDATED
+  LORE_ENTRY_CREATED
+  LORE_ENTRY_UPDATED
+  LORE_ENTRY_DELETED
+  LORE_RELATIONSHIP_CREATED
+  LORE_RELATIONSHIP_DELETED
 }
 
 enum AuthProvider {
@@ -462,6 +469,7 @@ model LoreEntry {
   @@unique([worldId, slug])
   @@index([worldId, status])
   @@index([worldId, loreType])
+  @@index([worldId, updatedAt, id])
   @@index([authorId])
 }
 
@@ -483,6 +491,8 @@ model LoreRelationship {
   @@index([worldId])
   @@index([sourceId])
   @@index([targetId])
+  @@index([sourceId, updatedAt, id])
+  @@index([targetId, updatedAt, id])
 }
 
 model Proposal {

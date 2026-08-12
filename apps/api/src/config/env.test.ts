@@ -65,16 +65,14 @@ describe('API environment validation', () => {
     assert.match(env.AUTH_REFRESH_SECRET, /test-only/);
   });
 
-  test('parses Hive network and bounded broadcast defaults', () => {
+  test('parses mainnet Hive config and bounded broadcast defaults', () => {
     const env = parseEnv({
-      HIVE_NETWORK: 'testnet',
       NODE_ENV: 'test',
     });
 
-    assert.equal(env.HIVE_NETWORK, 'testnet');
     assert.equal(
-      env.HIVE_TESTNET_CHAIN_ID,
-      '18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e',
+      env.HIVE_MAINNET_CHAIN_ID,
+      'beeab0de00000000000000000000000000000000000000000000000000000000',
     );
     assert.equal(env.HIVE_BROADCAST_MAX_ATTEMPTS, 4);
     assert.equal(env.HIVE_BROADCAST_TOTAL_DEADLINE_MS, 90_000);
@@ -92,15 +90,6 @@ describe('API environment validation', () => {
   });
 
   test('rejects invalid Hive network configuration', () => {
-    assert.throws(
-      () =>
-        parseEnv({
-          HIVE_NETWORK: 'sidechain',
-          NODE_ENV: 'test',
-        }),
-      /HIVE_NETWORK/,
-    );
-
     assert.throws(
       () =>
         parseEnv({

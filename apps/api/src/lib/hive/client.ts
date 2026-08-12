@@ -15,11 +15,7 @@ export function createHiveNetworkConfig() {
     mainnetChainId: env.HIVE_MAINNET_CHAIN_ID,
     mainnetHafUrl: env.HIVE_MAINNET_HAF_URL,
     mainnetRpcNodes: env.HIVE_MAINNET_RPC_NODES || env.HIVE_RPC_URL,
-    network: env.HIVE_NETWORK,
     nodeEnv: env.NODE_ENV,
-    testnetChainId: env.HIVE_TESTNET_CHAIN_ID,
-    testnetHafUrl: env.HIVE_TESTNET_HAF_URL,
-    testnetRpcNodes: env.HIVE_TESTNET_RPC_NODES,
   });
 }
 

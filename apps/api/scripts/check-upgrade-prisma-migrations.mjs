@@ -1,29 +1,39 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 
 const { Client } = pg;
 
-const scriptDir = dirname(fileURLToPath(import.meta.url));
-const currentApiDir = resolve(scriptDir, '..');
-const repoRoot = resolve(currentApiDir, '..', '..');
-const baseRef = process.env.PRISMA_MIGRATION_BASE_REF ?? process.env.GITHUB_BASE_REF ?? 'develop';
+const disposablePrefix = 'hivelore_migrate_upgrade_';
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL;
-const disposablePrefix = 'hivelore_upgrade_check_';
-const databaseName = `${disposablePrefix}${Date.now()}_${process.pid}_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
-const baseWorktreeDir = mkdtempSync(join(tmpdir(), 'hivelore-base-migrations-'));
+const baseSchema = process.env.TEST_DATABASE_BASE_PRISMA_SCHEMA;
+const repairedMigration = '20260718154842_init';
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const apiWorkspaceDir = path.resolve(scriptDir, '..');
+const repoRoot = path.resolve(apiWorkspaceDir, '..', '..');
+const prismaExecutable = path.join(
+  repoRoot,
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'prisma.cmd' : 'prisma',
+);
 
 if (!adminUrl) {
   throw new Error(
     'TEST_DATABASE_ADMIN_URL is required, for example postgresql://postgres:postgres@127.0.0.1:5432/postgres',
   );
 }
+
+if (!baseSchema) {
+  throw new Error('TEST_DATABASE_BASE_PRISMA_SCHEMA must point to the base branch schema.prisma.');
+}
+
+const databaseName = `${disposablePrefix}${Date.now()}_${process.pid}_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
 
 if (!databaseName.startsWith(disposablePrefix)) {
   throw new Error(`Refusing to use non-disposable database name: ${databaseName}`);
@@ -32,41 +42,51 @@ if (!databaseName.startsWith(disposablePrefix)) {
 const databaseUrl = new URL(adminUrl);
 databaseUrl.pathname = `/${databaseName}`;
 const directUrl = databaseUrl.toString();
-let databaseCreated = false;
-let worktreeAdded = false;
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: repoRoot,
-    shell: false,
-    stdio: 'inherit',
-    ...options,
-  });
-
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}`);
-  }
-}
-
-function prismaExecutable() {
-  return join(
-    repoRoot,
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'prisma.cmd' : 'prisma',
-  );
-}
-
-function runPrisma(args, cwd) {
-  run(prismaExecutable(), args, {
-    cwd,
+function runPrisma(args, options = {}) {
+  const result = spawnSync(prismaExecutable, args, {
+    cwd: options.cwd ?? apiWorkspaceDir,
     env: {
       ...process.env,
       DATABASE_URL: directUrl,
       DIRECT_URL: directUrl,
       NODE_ENV: 'test',
     },
+    shell: false,
+    stdio: 'inherit',
+    ...options,
   });
+
+  if (!options.allowFailure && result.status !== 0) {
+    throw new Error(`prisma ${args.join(' ')} failed with exit code ${result.status}`);
+  }
+
+  return result.status ?? 1;
+}
+
+function getBaseApiWorkspaceDir(schemaPath) {
+  return path.dirname(path.dirname(path.resolve(schemaPath)));
+}
+
+async function createBasePrismaConfig(apiWorkspaceDir) {
+  const configPath = path.join(apiWorkspaceDir, 'prisma.config.ts');
+
+  await writeFile(
+    configPath,
+    `
+export default {
+  schema: 'prisma/schema.prisma',
+  migrations: {
+    path: 'prisma/migrations',
+  },
+  datasource: {
+    url: process.env.DIRECT_URL,
+  },
+};
+`.trimStart(),
+  );
+
+  return configPath;
 }
 
 async function withAdminClient(callback) {
@@ -104,52 +124,54 @@ async function dropDatabase() {
 }
 
 try {
-  console.log(`Fetching base branch origin/${baseRef}`);
-  run('git', ['fetch', '--depth=1', 'origin', baseRef]);
-
-  console.log(`Checking out base branch migrations into ${baseWorktreeDir}`);
-  run('git', ['worktree', 'add', '--detach', baseWorktreeDir, 'FETCH_HEAD']);
-  worktreeAdded = true;
-
   console.log(`Creating disposable PostgreSQL database ${databaseName}`);
   await createDatabase();
-  databaseCreated = true;
 
-  console.log(`Deploying base branch migration history from origin/${baseRef}`);
-  runPrisma(['migrate', 'deploy'], join(baseWorktreeDir, 'apps', 'api'));
-
-  console.log('Deploying current branch migrations over the base schema');
-  runPrisma(['migrate', 'deploy'], currentApiDir);
-
-  console.log('Checking upgraded schema for drift against current schema.prisma');
-  runPrisma(
-    [
-      'migrate',
-      'diff',
-      '--from-config-datasource',
-      '--to-schema',
-      'prisma/schema.prisma',
-      '--exit-code',
-    ],
-    currentApiDir,
+  console.log('Deploying base branch migration history');
+  const baseApiWorkspaceDir = getBaseApiWorkspaceDir(baseSchema);
+  const baseConfig = await createBasePrismaConfig(baseApiWorkspaceDir);
+  const baseStatus = runPrisma(
+    ['migrate', 'deploy', '--schema', baseSchema, '--config', baseConfig],
+    {
+      allowFailure: true,
+      cwd: baseApiWorkspaceDir,
+    },
   );
+
+  if (baseStatus !== 0) {
+    console.log(`Resolving historical failed migration ${repairedMigration} as rolled back`);
+    runPrisma(
+      [
+        'migrate',
+        'resolve',
+        '--rolled-back',
+        repairedMigration,
+        '--schema',
+        baseSchema,
+        '--config',
+        baseConfig,
+      ],
+      {
+        cwd: baseApiWorkspaceDir,
+      },
+    );
+  }
+
+  console.log('Deploying repaired migration history from this branch');
+  runPrisma(['migrate', 'deploy']);
+
+  console.log('Checking upgraded schema for drift against schema.prisma');
+  runPrisma([
+    'migrate',
+    'diff',
+    '--from-config-datasource',
+    '--to-schema',
+    'prisma/schema.prisma',
+    '--exit-code',
+  ]);
 
   console.log('Prisma migration upgrade check passed');
 } finally {
-  if (databaseCreated) {
-    console.log(`Dropping disposable PostgreSQL database ${databaseName}`);
-    await dropDatabase().catch((error) => {
-      console.error(error);
-    });
-  }
-
-  if (worktreeAdded) {
-    console.log(`Removing base worktree ${baseWorktreeDir}`);
-    try {
-      run('git', ['worktree', 'remove', '--force', baseWorktreeDir]);
-    } catch (error) {
-      console.error(error);
-    }
-  }
-  rmSync(baseWorktreeDir, { force: true, recursive: true });
+  console.log(`Dropping disposable PostgreSQL database ${databaseName}`);
+  await dropDatabase();
 }

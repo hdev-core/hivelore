@@ -4,23 +4,26 @@ import type { HafBlockSearchPage, HafOperationRow } from './types.js';
 export interface HafClientOptions {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  requestTimeoutMs?: number;
 }
 
 export class HafClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly requestTimeoutMs: number;
 
   constructor(options: HafClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_HAF_API_URL).replace(/\/$/, '');
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
   }
 
-  async getHeadBlock(): Promise<number> {
-    return this.getLatestSyncedBlock();
+  async getHeadBlock(signal?: AbortSignal): Promise<number> {
+    return this.getLatestSyncedBlock(signal);
   }
 
-  async getLatestSyncedBlock(): Promise<number> {
-    const value = await this.getJson<unknown>('/last-synced-block');
+  async getLatestSyncedBlock(signal?: AbortSignal): Promise<number> {
+    const value = await this.getJson<unknown>('/last-synced-block', undefined, signal);
 
     if (typeof value !== 'number' || !Number.isInteger(value)) {
       throw new Error('HAF last-synced-block response did not include a block number.');
@@ -47,14 +50,19 @@ export class HafClient {
     toBlock?: number;
     page?: number;
     pageSize?: number;
+    signal?: AbortSignal;
   }): Promise<HafBlockSearchPage> {
-    const response = await this.getJson<unknown>('/block-search', {
-      'operation-types': params.operationTypes?.join(','),
-      'from-block': params.fromBlock,
-      'to-block': params.toBlock,
-      page: params.page,
-      'page-size': params.pageSize,
-    });
+    const response = await this.getJson<unknown>(
+      '/block-search',
+      {
+        'operation-types': params.operationTypes?.join(','),
+        'from-block': params.fromBlock,
+        'to-block': params.toBlock,
+        page: params.page,
+        'page-size': params.pageSize,
+      },
+      params.signal,
+    );
 
     return parseBlockSearchPage(response);
   }
@@ -62,6 +70,7 @@ export class HafClient {
   private async getJson<T>(
     path: string,
     params?: Record<string, number | string | undefined>,
+    signal?: AbortSignal,
   ): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`);
 
@@ -71,7 +80,9 @@ export class HafClient {
       }
     }
 
-    const response = await this.fetchImpl(url);
+    const response = await this.fetchImpl(url, {
+      signal: createTimeoutSignal(this.requestTimeoutMs, signal),
+    });
 
     if (!response.ok) {
       throw new Error(`HAF request failed: ${response.status} ${response.statusText}`);
@@ -79,6 +90,30 @@ export class HafClient {
 
     return (await response.json()) as T;
   }
+}
+
+function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (parentSignal?.aborted) {
+    clearTimeout(timeout);
+    controller.abort();
+    return controller.signal;
+  }
+
+  parentSignal?.addEventListener(
+    'abort',
+    () => {
+      clearTimeout(timeout);
+      controller.abort();
+    },
+    { once: true },
+  );
+
+  controller.signal.addEventListener('abort', () => clearTimeout(timeout), { once: true });
+
+  return controller.signal;
 }
 
 export function parseBlockSearchPage(response: unknown): HafBlockSearchPage {

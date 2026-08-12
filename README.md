@@ -254,11 +254,10 @@ voter identity, role, tally, result, or authoritative timestamps. Authenticated 
 
 Supported choices are `APPROVE`, `REJECT`, `NEEDS_REVISION`, and `ALTERNATE_TIMELINE`.
 `totalVotes` counts all four choices. Approval arithmetic is exact integer basis points:
-`approvalNumerator = APPROVE`,
-`approvalDenominator = APPROVE + REJECT + NEEDS_REVISION + ALTERNATE_TIMELINE`, and
+`approvalNumerator = APPROVE`, `approvalDenominator = all four choices`, and
 `approvalPercentageBps = floor(APPROVE * 10000 / approvalDenominator)`, or `0` when the denominator
-is zero. `NEEDS_REVISION` and `ALTERNATE_TIMELINE` remain distinct feedback categories, but they act
-as soft rejection votes in approval math because they reduce `APPROVE / all votes cast`.
+is zero. `NEEDS_REVISION` and `ALTERNATE_TIMELINE` count toward both participation and the approval
+denominator.
 
 The MVP policy is centralized in `apps/api/src/lib/canon-voting-policy.ts`:
 
@@ -575,13 +574,9 @@ HIVE_AUTH_AUDIENCE="hivelore-local-api"
 HIVE_RPC_URL="https://api.hive.blog"
 HAF_API_URL="https://api.hive.blog/hafbe-api"
 HIVELORE_APP_ID="hivelore/0.1.0"
-HIVE_NETWORK="mainnet"
 HIVE_MAINNET_CHAIN_ID="beeab0de00000000000000000000000000000000000000000000000000000000"
 HIVE_MAINNET_RPC_NODES="https://api.hive.blog"
 HIVE_MAINNET_HAF_URL="https://api.hive.blog/hafbe-api"
-HIVE_TESTNET_CHAIN_ID="18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e"
-HIVE_TESTNET_RPC_NODES="https://testnet.openhive.network"
-HIVE_TESTNET_HAF_URL=""
 HIVE_BROADCAST_MAX_ATTEMPTS=4
 HIVE_BROADCAST_INITIAL_DELAY_MS=500
 HIVE_BROADCAST_MAX_DELAY_MS=5000
@@ -683,7 +678,7 @@ npm run db:migrate:deploy
 npm run db:generate
 ```
 
-Existing databases that already recorded both baseline migrations do not need data changes before deploying this repository repair. Prisma may warn that `20260718154842_init` was modified after it was applied because the stored checksum reflects the old duplicate SQL. That warning is expected for those environments; do not reset or recreate the database to clear it. If an environment has only the first baseline recorded, the retained no-op second migration can be applied normally. If an environment has schema objects present but inconsistent or failed migration history, inspect `_prisma_migrations` and the actual schema first, then use the narrow Prisma recovery procedure appropriate to that state.
+Existing databases that already recorded both baseline migrations do not need data changes before deploying this repository repair. Prisma may warn that `20260718154842_init` was modified after it was applied because the stored checksum reflects the old duplicate SQL. That warning is expected for those environments; do not reset or recreate the database to clear it. If an environment is blocked by a failed `20260718154842_init` row after the duplicate SQL already created the baseline objects, inspect `_prisma_migrations` and the actual schema first, then run `npx prisma migrate resolve --rolled-back 20260718154842_init --schema apps/api/prisma/schema.prisma` before `npm run db:migrate:deploy`. If an environment has only the first baseline recorded, the retained no-op second migration can be applied normally.
 
 CI validates the full migration history against a disposable PostgreSQL database with:
 
@@ -692,6 +687,8 @@ TEST_DATABASE_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres n
 ```
 
 The check creates a uniquely named `hivelore_migrate_check_*` database, runs `prisma migrate deploy` twice, compares the deployed schema with `schema.prisma`, generates Prisma Client, runs the development seed, smoke-checks representative tables/enums/constraints/indexes, and drops only the generated disposable database.
+
+CI also validates the upgrade path from `develop` with `npm run db:migrate:check:upgrade`. That job deploys the base branch migration history into a disposable PostgreSQL database, applies the documented `20260718154842_init` recovery when needed, deploys this branch's repaired migrations, checks for schema drift, and drops the disposable database.
 
 ### Seed Behavior
 
@@ -705,7 +702,7 @@ All backend Hive access goes through `apps/api/src/lib/hive`. The module uses `@
 
 ### Hive Network And Broadcast Reliability
 
-HiveLore supports `mainnet` and the Hive Public Testnet. Mainnet uses chain ID `beeab0de00000000000000000000000000000000000000000000000000000000`, address prefix `STM`, and the configured `HIVE_MAINNET_RPC_NODES`. The supported public testnet uses chain ID `18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e`, address prefix `TST`, and `HIVE_TESTNET_RPC_NODES`. The network config is built as one unit with chain ID, node list, HAF/indexer URL, address prefix, custom JSON ID, and transaction expiration policy. Invalid networks, empty node lists, malformed chain IDs, credential-bearing node URLs, and non-HTTPS production nodes fail startup validation. HiveLore never silently falls back between mainnet and testnet.
+HiveLore is mainnet-only. It uses chain ID `beeab0de00000000000000000000000000000000000000000000000000000000`, address prefix `STM`, and the configured `HIVE_MAINNET_RPC_NODES`. The network config is built as one unit with chain ID, node list, HAF/indexer URL, address prefix, custom JSON ID, and transaction expiration policy. Empty node lists, malformed chain IDs, non-mainnet chain IDs, credential-bearing node URLs, and non-HTTPS production nodes fail startup validation.
 
 Backend-controlled broadcasts go through the typed reliability layer in `apps/api/src/lib/hive/broadcast-reliability.ts`. It broadcasts only already-signed transactions, never asks for private keys, and preserves the submitted transaction ID across retries. Transient RPC failures use bounded exponential backoff with jitter and node rotation; permanent transaction rejections such as invalid signatures, insufficient authority, malformed operations, expired transactions, and insufficient Resource Credits fail fast without rotating through every node. Ambiguous outcomes, including a timeout after a node may have accepted a transaction, enter confirmation polling before any retry and retry only the exact same signed transaction when still safe.
 
@@ -715,17 +712,15 @@ Successful confirmed broadcasts return a structured result containing the networ
 
 ### Hive Smoke Tests
 
-Testnet smoke test:
+Mainnet smoke test:
 
-1. Set `HIVE_NETWORK=testnet`, `HIVE_TESTNET_CHAIN_ID=18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e`, `HIVE_TESTNET_RPC_NODES=https://testnet.openhive.network`, and a compatible testnet HAF/indexer URL if available.
-2. Use a dedicated public test account with sufficient testnet Resource Credits.
-3. Build a harmless uniquely identifiable HiveLore `custom_json` operation.
-4. Sign non-custodially with Hive Keychain or HiveSigner. Do not paste private keys into the API or logs.
-5. Broadcast the signed transaction through the reliability layer or browser signer, then submit only the transaction ID and optional block/operation hints to the API confirmation endpoint.
-6. Confirm through HAF/indexer read-back and record network, transaction ID, block number, blockchain timestamp, confirmation time, confirmation source, signer, operation type, and read-back link.
-7. Re-run confirmation for the same transaction ID to verify idempotency.
+1. Build a harmless uniquely identifiable HiveLore `custom_json` operation.
+2. Sign non-custodially with Hive Keychain or HiveSigner. Do not paste private keys into the API or logs.
+3. Broadcast the signed transaction through the reliability layer or browser signer, then submit only the transaction ID and optional block/operation hints to the API confirmation endpoint.
+4. Confirm through HAF/indexer read-back and record network, transaction ID, block number, blockchain timestamp, confirmation time, confirmation source, signer, operation type, and read-back link.
+5. Re-run confirmation for the same transaction ID to verify idempotency.
 
-Mainnet smoke test follows the same steps with `HIVE_NETWORK=mainnet`, but must not be run without explicit approval of the account, exact operation, and expected permanence. Prefer a minimal approved `custom_json` smoke operation; never automate or bypass the user's signing approval.
+Mainnet smoke tests must not be run without explicit approval of the account, exact operation, and expected permanence. Prefer a minimal approved `custom_json` smoke operation; never automate or bypass the user's signing approval.
 
 ### Standalone HAF Indexer
 

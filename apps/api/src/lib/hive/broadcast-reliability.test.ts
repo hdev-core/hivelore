@@ -21,7 +21,6 @@ import type { HafOperationRow } from './types.js';
 const network = buildHiveNetworkConfig({
   customJsonId: 'hivelore',
   mainnetRpcNodes: 'https://node-a.test,https://node-b.test',
-  network: 'mainnet',
   nodeEnv: 'test',
 });
 
@@ -405,6 +404,62 @@ describe('Hive broadcast reliability', () => {
 
     assert.deepEqual(searchedPages, [1, 2]);
     assert.equal(result.transactionId, 'tx-1');
+  });
+
+  test('prefers transaction lookup over HAF block-search for confirmation', async () => {
+    let transactionLookups = 0;
+    let blockSearches = 0;
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
+
+    const broadcaster = new HiveReliableBroadcaster(
+      network,
+      {
+        async broadcast() {},
+        async getHeadBlock() {
+          return 101;
+        },
+        async getTransaction() {
+          transactionLookups += 1;
+
+          return [
+            {
+              block_num: 101,
+              operation: {
+                custom_json_operation: {
+                  required_auths: customJson.required_auths,
+                  required_posting_auths: customJson.required_posting_auths,
+                  id: customJson.id,
+                  json: customJson.json,
+                },
+              },
+              operation_id: 0,
+              timestamp: '2026-08-10T12:01:00.000Z',
+              transaction_id: 'tx-1',
+            },
+          ];
+        },
+        async searchBlocks() {
+          blockSearches += 1;
+          throw new Error('block-search should not be used when transaction lookup exists');
+        },
+      },
+      {
+        confirmationPollIntervalMs: 1,
+        confirmationTimeoutMs: 10,
+      },
+      fakeClock(),
+    );
+
+    const result = await broadcaster.confirmTransaction({
+      expectedOperation: operation,
+      expectedSigner: 'mira-vale.dev',
+      transactionId: 'tx-1',
+    });
+
+    assert.equal(result.transactionId, 'tx-1');
+    assert.equal(transactionLookups, 1);
+    assert.equal(blockSearches, 0);
   });
 
   test('calculates capped exponential backoff with bounded jitter', () => {

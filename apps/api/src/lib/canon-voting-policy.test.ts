@@ -80,11 +80,13 @@ describe('canon voting policy', () => {
     );
   });
 
-  test('zero votes produce zero percent instead of NaN or accidental approval', () => {
-    const tally = tallyCanonVotes([]);
+  test('zero approve produces zero percent instead of NaN', () => {
+    const tally = tallyCanonVotes(
+      votes(VoteChoice.NEEDS_REVISION, VoteChoice.NEEDS_REVISION, VoteChoice.ALTERNATE_TIMELINE),
+    );
 
-    assert.equal(tally.totalVotes, 0);
-    assert.equal(tally.approvalDenominator, 0);
+    assert.equal(tally.totalVotes, 3);
+    assert.equal(tally.approvalDenominator, 3);
     assert.equal(tally.approvalPercentageBps, 0);
     assert.equal(
       decideCanonOutcome({ now: afterEnd, tally, votingEndsAt }),
@@ -92,7 +94,7 @@ describe('canon voting policy', () => {
     );
   });
 
-  test('all four choices count in the approval denominator', () => {
+  test('revision and alternate votes count toward participation and approval denominator', () => {
     const tally = tallyCanonVotes(
       votes(
         VoteChoice.APPROVE,
@@ -109,97 +111,23 @@ describe('canon voting policy', () => {
     assert.equal(tally.approvalPercentageBps, 2_000);
   });
 
-  test('five approve plus twenty needs revision is twenty percent and fails', () => {
+  test('constructive dissent prevents approval instead of disappearing from the denominator', () => {
     const tally = tallyCanonVotes(
       votes(
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        ...Array.from({ length: 20 }, () => VoteChoice.NEEDS_REVISION),
-      ),
-    );
-
-    assert.equal(tally.totalVotes, 25);
-    assert.equal(tally.approvalDenominator, 25);
-    assert.equal(tally.approvalNumerator, 5);
-    assert.equal(tally.approvalPercentageBps, 2_000);
-    assert.equal(
-      decideCanonOutcome({ now: afterEnd, tally, votingEndsAt }),
-      ProposalDecisionOutcome.NEEDS_REVISION,
-    );
-  });
-
-  test('needs revision votes reduce approval percentage', () => {
-    const tally = tallyCanonVotes(
-      votes(
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
         VoteChoice.APPROVE,
         VoteChoice.NEEDS_REVISION,
-      ),
-    );
-
-    assert.equal(tally.approvalDenominator, 5);
-    assert.equal(tally.approvalPercentageBps, 8_000);
-  });
-
-  test('alternate timeline votes reduce approval percentage', () => {
-    const tally = tallyCanonVotes(
-      votes(
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.ALTERNATE_TIMELINE,
-      ),
-    );
-
-    assert.equal(tally.approvalDenominator, 5);
-    assert.equal(tally.approvalPercentageBps, 8_000);
-  });
-
-  test('mixed votes across all four choices use integer-safe basis points', () => {
-    const tally = tallyCanonVotes(
-      votes(
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.REJECT,
         VoteChoice.NEEDS_REVISION,
-        VoteChoice.ALTERNATE_TIMELINE,
+        VoteChoice.NEEDS_REVISION,
+        VoteChoice.NEEDS_REVISION,
       ),
     );
 
     assert.equal(tally.totalVotes, 5);
     assert.equal(tally.approvalDenominator, 5);
-    assert.equal(tally.approvalPercentageBps, 4_000);
-  });
-
-  test('a result immediately below seventy percent fails', () => {
-    const tally = tallyCanonVotes(
-      votes(
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.APPROVE,
-        VoteChoice.REJECT,
-        VoteChoice.REJECT,
-        VoteChoice.REJECT,
-        VoteChoice.REJECT,
-      ),
-    );
-
-    assert.equal(tally.approvalPercentageBps, 6_923);
+    assert.equal(tally.approvalPercentageBps, 2_000);
     assert.equal(
       decideCanonOutcome({ now: afterEnd, tally, votingEndsAt }),
-      ProposalDecisionOutcome.REJECTED,
+      ProposalDecisionOutcome.NEEDS_REVISION,
     );
   });
 

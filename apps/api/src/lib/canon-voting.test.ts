@@ -155,8 +155,8 @@ function createDatabase(
       },
     },
     proposalDecision: {
-      async findUnique(args: { where: { id: string } }) {
-        return args.where.id === decision.id ? decision : null;
+      async findUnique() {
+        return decision;
       },
       async update(args: { data: Record<string, unknown> }) {
         Object.assign(decision, args.data);
@@ -164,24 +164,19 @@ function createDatabase(
       },
       async updateMany(args: {
         data: Record<string, unknown>;
-        where: {
-          hiveEventId: null;
-          id: string;
-          operationIndex: null;
-          transactionId: null;
-        };
+        where: { hiveEventId?: null; id: string; operationIndex: null; transactionId: null };
       }) {
         if (
-          args.where.id === decision.id &&
-          decision.hiveEventId === null &&
-          decision.operationIndex === null &&
-          decision.transactionId === null
+          args.where.id !== decision.id ||
+          ('hiveEventId' in args.where && decision.hiveEventId !== null) ||
+          decision.operationIndex !== null ||
+          decision.transactionId !== null
         ) {
-          Object.assign(decision, args.data);
-          return { count: 1 };
+          return { count: 0 };
         }
 
-        return { count: 0 };
+        Object.assign(decision, args.data);
+        return { count: 1 };
       },
     },
     worldMembership: {

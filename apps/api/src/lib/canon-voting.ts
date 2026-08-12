@@ -841,6 +841,14 @@ export async function createCanonTransactionOperation(
     );
   }
 
+  if (proposal.decision.transactionId || proposal.decision.operationIndex !== null) {
+    throw new CanonVotingError(
+      409,
+      'DECISION_ALREADY_CONFIRMED',
+      'Proposal decision is already linked to a Hive operation.',
+    );
+  }
+
   if (proposal.authorId !== input.signerId) {
     throw new CanonVotingError(
       403,
