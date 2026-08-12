@@ -515,10 +515,9 @@ describe('Hive broadcast reliability', () => {
         buildHiveNetworkConfig({
           customJsonId: 'hivelore',
           mainnetChainId: '0'.repeat(64),
-          network: 'mainnet',
           nodeEnv: 'test',
         }),
-      /HIVE_MAINNET_CHAIN_ID/,
+      /mainnet chain ID/,
     );
   });
 });

@@ -23,7 +23,7 @@ import {
 } from '../lib/proposal-comments.js';
 import { authorizeWorldPermission } from '../lib/world-authorization.js';
 import type { WorldMembershipLookup } from '../lib/world-authorization.js';
-import { WORLD_PERMISSIONS } from '../lib/world-permissions.js';
+import { roleHasWorldPermission, WORLD_PERMISSIONS } from '../lib/world-permissions.js';
 import { createHiveReliableBroadcaster } from '../lib/hive/client.js';
 import {
   HiveBroadcastError,
@@ -156,6 +156,47 @@ function canonTransactionConfirmRateLimitOptions(database: typeof prisma) {
     max: 3,
     timeWindow: '60 seconds',
   };
+}
+
+async function authorizeCanonTransactionPermission(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  database: WorldMembershipLookup,
+  worldId: string,
+) {
+  if (!request.user) {
+    return false;
+  }
+
+  const membership = await database.worldMembership.findUnique({
+    select: {
+      id: true,
+      revokedAt: true,
+      role: true,
+      userId: true,
+      worldId: true,
+    },
+    where: {
+      revokedAt: null,
+      worldId_userId: {
+        userId: request.user.id,
+        worldId,
+      },
+    },
+  });
+
+  if (!membership || !roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.SUBMIT_PROPOSAL)) {
+    await reply.code(403).send({
+      code: 'INSUFFICIENT_WORLD_PERMISSIONS',
+      error: 'Insufficient world permissions.',
+    });
+
+    return false;
+  }
+
+  request.worldMembership = membership;
+
+  return true;
 }
 
 export async function registerProposalRoutes(
@@ -420,12 +461,11 @@ export async function registerProposalRoutes(
         });
       }
 
-      const authorized = await authorizeWorldPermission(
+      const authorized = await authorizeCanonTransactionPermission(
         request,
         reply,
-        params.data.worldId,
-        WORLD_PERMISSIONS.SUBMIT_PROPOSAL,
         database,
+        params.data.worldId,
       );
 
       if (!authorized) {
@@ -470,12 +510,11 @@ export async function registerProposalRoutes(
         });
       }
 
-      const authorized = await authorizeWorldPermission(
+      const authorized = await authorizeCanonTransactionPermission(
         request,
         reply,
-        params.data.worldId,
-        WORLD_PERMISSIONS.SUBMIT_PROPOSAL,
         database,
+        params.data.worldId,
       );
 
       if (!authorized) {

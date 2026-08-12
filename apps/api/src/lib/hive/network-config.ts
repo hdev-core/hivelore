@@ -54,7 +54,7 @@ export function buildHiveNetworkConfig(input: {
 
   validateChainId(chainId);
 
-  if (!isTestnet && chainId !== HIVE_MAINNET_CHAIN_ID) {
+  if (chainId !== HIVE_MAINNET_CHAIN_ID) {
     throw new Error('HIVE_MAINNET_CHAIN_ID must match the Hive mainnet chain ID.');
   }
 

@@ -90,7 +90,7 @@ describe('canon voting policy', () => {
     assert.equal(tally.approvalPercentageBps, 0);
     assert.equal(
       decideCanonOutcome({ now: afterEnd, tally, votingEndsAt }),
-      ProposalDecisionOutcome.REJECTED,
+      ProposalDecisionOutcome.NEEDS_REVISION,
     );
   });
 
