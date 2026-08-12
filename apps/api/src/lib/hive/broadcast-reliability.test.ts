@@ -314,6 +314,32 @@ describe('Hive broadcast reliability', () => {
     assert.equal(confirmed?.transactionId, 'tx-1');
   });
 
+  test('normalizes condenser operation rows returned by transaction read-back', () => {
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
+
+    const confirmed = findAndVerifyOperation(
+      [
+        {
+          block: 101,
+          op: ['custom_json', customJson],
+          op_in_trx: 0,
+          timestamp: '2026-08-10T12:01:00.000Z',
+          trx_id: 'tx-1',
+        },
+      ],
+      {
+        expectedOperation: operation,
+        expectedSigner: 'mira-vale.dev',
+        operationIndex: 0,
+        transactionId: 'tx-1',
+      },
+    );
+
+    assert.equal(confirmed?.transactionId, 'tx-1');
+    assert.equal(confirmed.operationIndex, 0);
+  });
+
   test('ignores unrelated malformed HAF rows before normalizing candidates', () => {
     const confirmed = findAndVerifyOperation(
       [
@@ -426,5 +452,18 @@ describe('Hive broadcast reliability', () => {
     assert.deepEqual(parseNodeList('https://a.test, https://a.test/', 'test'), ['https://a.test']);
     assert.throws(() => parseNodeList('https://user:pass@a.test', 'test'), /credentials/);
     assert.throws(() => parseNodeList('', 'test'), /At least one/);
+  });
+
+  test('pins mainnet to the exact Hive chain id', () => {
+    assert.throws(
+      () =>
+        buildHiveNetworkConfig({
+          customJsonId: 'hivelore',
+          mainnetChainId: '0'.repeat(64),
+          network: 'mainnet',
+          nodeEnv: 'test',
+        }),
+      /HIVE_MAINNET_CHAIN_ID/,
+    );
   });
 });

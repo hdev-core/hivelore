@@ -44,7 +44,7 @@ export const DEFAULT_HIVE_RETRY_CONFIG: HiveRetryConfig = {
   maxDelayMs: 5_000,
   nodeCooldownMs: 30_000,
   requestTimeoutMs: 10_000,
-  totalDeadlineMs: 30_000,
+  totalDeadlineMs: 90_000,
 };
 
 export function buildHiveNetworkConfig(input: {
@@ -71,6 +71,10 @@ export function buildHiveNetworkConfig(input: {
   const hafUrl = isTestnet ? input.testnetHafUrl : input.mainnetHafUrl || DEFAULT_HAF_API_URL;
 
   validateChainId(chainId);
+
+  if (!isTestnet && chainId !== HIVE_MAINNET_CHAIN_ID) {
+    throw new Error('HIVE_MAINNET_CHAIN_ID must match the Hive mainnet chain ID.');
+  }
 
   return {
     addressPrefix: isTestnet ? 'TST' : 'STM',
@@ -151,6 +155,10 @@ export function validateHiveRetryConfig(config: HiveRetryConfig): HiveRetryConfi
 
   if (config.totalDeadlineMs < config.requestTimeoutMs) {
     throw new Error('HIVE_BROADCAST_TOTAL_DEADLINE_MS must be >= request timeout.');
+  }
+
+  if (config.totalDeadlineMs < config.confirmationTimeoutMs) {
+    throw new Error('HIVE_BROADCAST_TOTAL_DEADLINE_MS must be >= confirmation timeout.');
   }
 
   return config;

@@ -66,11 +66,13 @@ export interface HafOperationRow {
   block_num?: number | string;
   blockNumber?: number | string;
   block?: number | string;
+  transaction_num?: number | string;
   transaction_id?: string;
   transactionId?: string;
   trx_id?: string;
   operation_id?: number | string;
   operationIndex?: number | string;
+  op_in_trx?: number | string;
   op_pos?: number | string;
   timestamp?: string;
   created_at?: string;

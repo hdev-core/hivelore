@@ -20,6 +20,7 @@ export default tseslint.config(
   {
     ignores: [
       'node_modules/**',
+      '.worktrees/**',
       'apps/**/.next/**',
       '**/dist/**',
       'coverage/**',

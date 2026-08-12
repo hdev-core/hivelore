@@ -55,6 +55,11 @@ export class HiveBroadcastError extends Error {
 
 export interface HiveBroadcastTransport {
   broadcast(nodeUrl: string, transaction: ApiTransaction, signal?: AbortSignal): Promise<void>;
+  getTransactionOperations?(
+    transactionId: string,
+    nodeUrl?: string,
+    signal?: AbortSignal,
+  ): Promise<HafOperationRow[]>;
   searchBlocks(params: {
     fromBlock?: number;
     toBlock?: number;
@@ -101,6 +106,42 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
       ...(params.pageSize === undefined ? {} : { pageSize: params.pageSize }),
       ...(params.toBlock === undefined ? {} : { toBlock: params.toBlock }),
     });
+  }
+
+  async getTransactionOperations(
+    transactionId: string,
+    nodeUrl?: string,
+    signal?: AbortSignal,
+  ): Promise<HafOperationRow[]> {
+    const rpcUrl = nodeUrl ?? this.network.rpcNodes[0];
+
+    if (!rpcUrl) {
+      throw new HiveBroadcastError(
+        'NETWORK_CONFIGURATION_ERROR',
+        'No Hive RPC node is available for transaction lookup.',
+        'permanent',
+      );
+    }
+
+    const transaction = await postHiveJsonRpc<HiveTransactionLookupResult>(
+      rpcUrl,
+      'account_history_api.get_transaction',
+      { id: transactionId, include_reversible: true },
+      signal,
+    );
+
+    const operationsInBlock = await postHiveJsonRpc<{ ops: HafOperationRow[] }>(
+      rpcUrl,
+      'account_history_api.get_ops_in_block',
+      {
+        block_num: transaction.block_num,
+        include_reversible: true,
+        only_virtual: false,
+      },
+      signal,
+    );
+
+    return operationsInBlock.ops.filter((row) => rowMatchesTransaction(row, transactionId));
   }
 
   async getHeadBlock(): Promise<number> {
@@ -471,6 +512,23 @@ export async function pollForConfirmedOperation(input: {
     const nodeUrl = input.nodePool?.current();
 
     try {
+      const directRows = input.transport.getTransactionOperations
+        ? await input.transport.getTransactionOperations(
+            input.input.transactionId,
+            nodeUrl,
+            input.input.signal,
+          )
+        : [];
+      const directConfirmed = findAndVerifyOperation(directRows, input.input);
+
+      if (directConfirmed) {
+        if (nodeUrl) {
+          input.nodePool?.reportSuccess(nodeUrl);
+        }
+
+        return directConfirmed;
+      }
+
       const head = fromBlock
         ? fromBlock
         : await input.transport.getHeadBlock(nodeUrl, input.input.signal);
@@ -629,10 +687,54 @@ function rowMatchesOperationIndex(row: HafOperationRow, operationIndex: number |
     return true;
   }
 
-  const rawIndex = row.operation_id ?? row.operationIndex ?? row.op_pos;
+  const rawIndex = row.operation_id ?? row.operationIndex ?? row.op_in_trx ?? row.op_pos;
   const numericIndex = typeof rawIndex === 'string' ? Number(rawIndex) : rawIndex;
 
   return numericIndex === operationIndex;
+}
+
+interface HiveTransactionLookupResult {
+  block_num: number;
+  operations: unknown[];
+  transaction_id: string;
+  transaction_num?: number;
+}
+
+async function postHiveJsonRpc<T>(
+  nodeUrl: string,
+  method: string,
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const requestInit: RequestInit = {
+    body: JSON.stringify({
+      id: 1,
+      jsonrpc: '2.0',
+      method,
+      params,
+    }),
+    headers: {
+      'content-type': 'application/json',
+    },
+    method: 'POST',
+    ...(signal ? { signal } : {}),
+  };
+  const response = await fetch(nodeUrl, requestInit);
+
+  if (!response.ok) {
+    throw Object.assign(
+      new Error(`Hive RPC request failed: ${response.status} ${response.statusText}`),
+      { status: response.status },
+    );
+  }
+
+  const body = (await response.json()) as { error?: { message?: string }; result?: unknown };
+
+  if (body.error) {
+    throw new Error(body.error.message ?? 'Hive RPC request failed.');
+  }
+
+  return body.result as T;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined) {

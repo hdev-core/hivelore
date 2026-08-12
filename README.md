@@ -254,10 +254,11 @@ voter identity, role, tally, result, or authoritative timestamps. Authenticated 
 
 Supported choices are `APPROVE`, `REJECT`, `NEEDS_REVISION`, and `ALTERNATE_TIMELINE`.
 `totalVotes` counts all four choices. Approval arithmetic is exact integer basis points:
-`approvalNumerator = APPROVE`, `approvalDenominator = APPROVE + REJECT`, and
+`approvalNumerator = APPROVE`,
+`approvalDenominator = APPROVE + REJECT + NEEDS_REVISION + ALTERNATE_TIMELINE`, and
 `approvalPercentageBps = floor(APPROVE * 10000 / approvalDenominator)`, or `0` when the denominator
-is zero. `NEEDS_REVISION` and `ALTERNATE_TIMELINE` count toward participation but do not enter the
-approval denominator.
+is zero. `NEEDS_REVISION` and `ALTERNATE_TIMELINE` remain distinct feedback categories, but they act
+as soft rejection votes in approval math because they reduce `APPROVE / all votes cast`.
 
 The MVP policy is centralized in `apps/api/src/lib/canon-voting-policy.ts`:
 
@@ -587,7 +588,7 @@ HIVE_BROADCAST_MAX_DELAY_MS=5000
 HIVE_BROADCAST_BACKOFF_MULTIPLIER=2
 HIVE_BROADCAST_JITTER_RATIO=0.2
 HIVE_BROADCAST_TIMEOUT_MS=10000
-HIVE_BROADCAST_TOTAL_DEADLINE_MS=30000
+HIVE_BROADCAST_TOTAL_DEADLINE_MS=90000
 HIVE_CONFIRMATION_POLL_INTERVAL_MS=3000
 HIVE_CONFIRMATION_TIMEOUT_MS=60000
 HIVE_NODE_MAX_CONSECUTIVE_FAILURES=1

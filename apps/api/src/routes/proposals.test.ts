@@ -5,8 +5,17 @@ import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 
 import { env } from '../config/env.js';
-import { PlatformRole, ProposalStatus, WorldRole } from '../generated/prisma/enums.js';
+import {
+  PlatformRole,
+  ProposalDecisionOutcome,
+  ProposalStatus,
+  WorldAuditAction,
+  WorldRole,
+} from '../generated/prisma/enums.js';
 import { signAccessToken } from '../lib/auth-crypto.js';
+import { hashCanonicalJson } from '../lib/canon-voting-policy.js';
+import { HIVELORE_CUSTOM_JSON_ID } from '../lib/hive/constants.js';
+import { buildHiveLoreCustomJsonOperation } from '../lib/hive/operations.js';
 import { PROPOSAL_COMMENT_MAX_LENGTH } from '../lib/proposal-comments.js';
 import { registerProposalRoutes } from './proposals.js';
 
@@ -54,6 +63,8 @@ function now(offsetMs = 0) {
   return new Date(new Date('2026-08-10T12:00:00.000Z').getTime() + offsetMs);
 }
 
+const openVotingEndsAt = new Date('2099-08-12T12:00:00.000Z');
+
 type StoredComment = {
   authorId: string;
   body: string;
@@ -68,7 +79,74 @@ function encodeCursor(input: { createdAt: string; id: string }) {
   return Buffer.from(JSON.stringify(input), 'utf8').toString('base64url');
 }
 
+const decisionPayload = {
+  counts: {
+    alternateTimeline: 0,
+    approve: 7,
+    needsRevision: 0,
+    reject: 3,
+    total: 10,
+  },
+  eventType: 'canon_decision',
+  outcome: ProposalDecisionOutcome.APPROVED_FOR_PUBLICATION,
+  proposalId: 'proposal-1',
+  worldId: 'world-1',
+};
+
+function createDecision() {
+  return {
+    aiWarningAcknowledged: false,
+    aiWarningSummary: null,
+    alternateTimelineCount: 0,
+    approvalDenominator: 10,
+    approvalNumerator: 7,
+    approvalPercentageBps: 7000,
+    approvalThresholdBps: 7000,
+    approveCount: 7,
+    blockchainTimestamp: null,
+    blockNumber: null,
+    contentHash: 'content-hash',
+    createdAt: now(),
+    customJsonId: HIVELORE_CUSTOM_JSON_ID,
+    decidedAt: now(),
+    decisionPayload,
+    decisionPayloadHash: hashCanonicalJson(decisionPayload),
+    expectedSigner: 'mira-vale.dev',
+    hiveEventId: null,
+    id: 'decision-1',
+    minimumVotes: 5,
+    needsRevisionCount: 0,
+    operationIndex: null,
+    outcome: ProposalDecisionOutcome.APPROVED_FOR_PUBLICATION,
+    rejectCount: 3,
+    rulesVersion: 'canon-voting-mvp-2026-08-12',
+    totalVotes: 10,
+    transactionId: null,
+    updatedAt: now(),
+    votingWindowHours: 48,
+  };
+}
+
+function createConfirmedOperation(transactionId = 'tx-valid') {
+  return {
+    blockNumber: BigInt(100),
+    blockchainTimestamp: new Date('2026-08-12T12:05:00.000Z'),
+    operation: buildHiveLoreCustomJsonOperation({
+      action: 'canon_approval',
+      entityId: 'decision-1',
+      entityType: 'CANON_DECISION',
+      payload: decisionPayload,
+      proposalId: 'proposal-1',
+      signer: 'mira-vale.dev',
+      worldId: 'world-1',
+    }),
+    operationIndex: 0,
+    transactionId,
+  };
+}
+
 function createDatabase() {
+  const decision = createDecision();
   const users = [
     { ...author, avatarUrl: null, displayName: 'Mira Vale' },
     { ...reader, avatarUrl: null, displayName: null },
@@ -76,31 +154,51 @@ function createDatabase() {
   ];
   const proposals = [
     {
+      author: {
+        hiveUsername: author.hiveUsername,
+        id: author.id,
+      },
       authorId: author.id,
+      decision: null,
       id: 'proposal-1',
       status: ProposalStatus.VOTING,
-      votingEndsAt: now(48 * 60 * 60 * 1000),
+      votingEndsAt: openVotingEndsAt,
       worldId: 'world-1',
     },
     {
+      author: {
+        hiveUsername: author.hiveUsername,
+        id: author.id,
+      },
       authorId: author.id,
+      decision: null,
       id: 'proposal-closed',
       status: ProposalStatus.REJECTED,
       votingEndsAt: now(-1),
       worldId: 'world-1',
     },
     {
+      author: {
+        hiveUsername: author.hiveUsername,
+        id: author.id,
+      },
       authorId: author.id,
+      decision: null,
       id: 'proposal-same-world',
       status: ProposalStatus.VOTING,
-      votingEndsAt: now(48 * 60 * 60 * 1000),
+      votingEndsAt: openVotingEndsAt,
       worldId: 'world-1',
     },
     {
+      author: {
+        hiveUsername: author.hiveUsername,
+        id: author.id,
+      },
       authorId: author.id,
+      decision: null,
       id: 'proposal-2',
       status: ProposalStatus.VOTING,
-      votingEndsAt: now(48 * 60 * 60 * 1000),
+      votingEndsAt: openVotingEndsAt,
       worldId: 'world-2',
     },
   ];
@@ -122,6 +220,8 @@ function createDatabase() {
   ];
   const comments: StoredComment[] = [];
   const appVotes: unknown[] = [];
+  const auditLogs: unknown[] = [];
+  const events: unknown[] = [];
   const touchedVotes: string[] = [];
 
   function includeAuthor(comment: StoredComment) {
@@ -237,6 +337,63 @@ function createDatabase() {
           .map(includeAuthor);
       },
     },
+    proposalDecision: {
+      async findUnique(args: { where: { id: string } }) {
+        return args.where.id === decision.id ? decision : null;
+      },
+      async update(args: { data: Record<string, unknown> }) {
+        Object.assign(decision, args.data);
+        return decision;
+      },
+      async updateMany(args: {
+        data: Record<string, unknown>;
+        where: {
+          hiveEventId: null;
+          id: string;
+          operationIndex: null;
+          transactionId: null;
+        };
+      }) {
+        if (
+          args.where.id === decision.id &&
+          decision.hiveEventId === null &&
+          decision.operationIndex === null &&
+          decision.transactionId === null
+        ) {
+          Object.assign(decision, args.data);
+          return { count: 1 };
+        }
+
+        return { count: 0 };
+      },
+    },
+    hiveEvent: {
+      async upsert(args: {
+        create: { operationIndex: number; transactionId: string };
+        update: Record<string, unknown>;
+        where: { transactionId_operationIndex: { operationIndex: number; transactionId: string } };
+      }) {
+        const existing = events.find(
+          (event) =>
+            (event as { operationIndex: number; transactionId: string }).operationIndex ===
+              args.where.transactionId_operationIndex.operationIndex &&
+            (event as { operationIndex: number; transactionId: string }).transactionId ===
+              args.where.transactionId_operationIndex.transactionId,
+        );
+
+        if (existing) {
+          Object.assign(existing, args.update);
+          return existing;
+        }
+
+        const event = {
+          id: `event-${events.length + 1}`,
+          ...args.create,
+        };
+        events.push(event);
+        return event;
+      },
+    },
     refreshSession: {
       async findUnique(args: { where: { id: string } }) {
         if (!args.where.id.startsWith('session-')) {
@@ -264,6 +421,12 @@ function createDatabase() {
         );
       },
     },
+    worldAuditLog: {
+      async create(args: { data: unknown }) {
+        auditLogs.push(args.data);
+        return args.data;
+      },
+    },
     $transaction<T>(callback: (transaction: unknown) => Promise<T>) {
       return callback(database);
     },
@@ -271,22 +434,35 @@ function createDatabase() {
 
   return {
     appVotes,
+    auditLogs,
     comments,
     database,
+    decision,
+    events,
     memberships,
+    proposals,
     touchedVotes,
   };
 }
 
-async function createApp(database: ReturnType<typeof createDatabase>['database']) {
+async function createApp(
+  database: ReturnType<typeof createDatabase>['database'],
+  options: Parameters<typeof registerProposalRoutes>[1] = {},
+) {
   const app = Fastify();
   await app.register(rateLimit, {
     global: false,
   });
   await registerProposalRoutes(app, {
     database: database as never,
+    ...options,
   });
   return app;
+}
+
+function attachConfirmedDecision(state: ReturnType<typeof createDatabase>) {
+  (state.proposals[0] as { decision: ReturnType<typeof createDecision> | null }).decision =
+    state.decision;
 }
 
 describe('proposal comment routes', () => {
@@ -551,11 +727,192 @@ describe('proposal comment routes', () => {
     });
 
     assert.equal(malformedCursor.statusCode, 400);
+    assert.deepEqual(malformedCursor.json(), {
+      code: 'INVALID_COMMENT_CURSOR',
+      error: 'Invalid comment cursor.',
+    });
+    assert.notEqual(malformedCursor.json().error, 'Bad Request');
+    assert.equal('statusCode' in malformedCursor.json(), false);
+    assert.equal('message' in malformedCursor.json(), false);
     assert.equal(mismatchedRead.statusCode, 404);
     assert.equal(closedRead.statusCode, 200);
     assert.equal(closedRead.json().comments[0].body, 'Still readable');
     assert.equal(closedWrite.statusCode, 201);
     assert.equal(state.touchedVotes.length, 0);
+    await app.close();
+  });
+});
+
+describe('proposal route async error mapping', () => {
+  test('async canon voting errors use the application error response body', async () => {
+    const state = createDatabase();
+    const app = await createApp(state.database);
+
+    const closedVote = await app.inject({
+      headers: authHeader(reader),
+      method: 'POST',
+      payload: { choice: 'REJECT' },
+      url: '/worlds/world-1/proposals/proposal-closed/votes',
+    });
+
+    assert.equal(closedVote.statusCode, 409);
+    assert.deepEqual(closedVote.json(), {
+      code: 'PROPOSAL_NOT_VOTING',
+      error: 'Proposal is not open for voting.',
+    });
+    assert.notEqual(closedVote.json().error, 'Conflict');
+    assert.equal('statusCode' in closedVote.json(), false);
+    assert.equal('message' in closedVote.json(), false);
+    await app.close();
+  });
+});
+
+describe('canon transaction confirmation route', () => {
+  test('rejects unauthenticated confirmation before lookup or mutation', async () => {
+    const state = createDatabase();
+    attachConfirmedDecision(state);
+    let lookups = 0;
+    const app = await createApp(state.database, {
+      hiveBroadcaster: {
+        async confirmTransactionOperation() {
+          lookups += 1;
+          return createConfirmedOperation();
+        },
+      } as never,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      payload: {
+        operationIndex: 0,
+        transactionId: 'tx-valid',
+      },
+      url: '/worlds/world-1/proposals/proposal-1/canon-transaction/confirm',
+    });
+
+    assert.equal(response.statusCode, 401);
+    assert.equal(lookups, 0);
+    assert.equal(state.decision.transactionId, null);
+    assert.equal(state.events.length, 0);
+    assert.equal(state.auditLogs.length, 0);
+    await app.close();
+  });
+
+  test('rejects unrelated and insufficient-role users with typed authorization bodies', async () => {
+    const state = createDatabase();
+    attachConfirmedDecision(state);
+    let lookups = 0;
+    const app = await createApp(state.database, {
+      hiveBroadcaster: {
+        async confirmTransactionOperation() {
+          lookups += 1;
+          return createConfirmedOperation();
+        },
+      } as never,
+    });
+
+    const unrelated = await app.inject({
+      headers: authHeader(reader),
+      method: 'POST',
+      payload: {
+        operationIndex: 0,
+        transactionId: 'tx-valid',
+      },
+      url: '/worlds/world-1/proposals/proposal-1/canon-transaction/confirm',
+    });
+    state.memberships.find((membership) => membership.userId === author.id)!.role =
+      WorldRole.READER;
+    const insufficientRole = await app.inject({
+      headers: authHeader(author),
+      method: 'POST',
+      payload: {
+        operationIndex: 0,
+        transactionId: 'tx-valid',
+      },
+      url: '/worlds/world-1/proposals/proposal-1/canon-transaction/confirm',
+    });
+
+    assert.equal(unrelated.statusCode, 403);
+    assert.deepEqual(unrelated.json(), {
+      code: 'INSUFFICIENT_WORLD_PERMISSIONS',
+      error: 'Insufficient world permissions.',
+    });
+    assert.equal(insufficientRole.statusCode, 403);
+    assert.deepEqual(insufficientRole.json(), {
+      code: 'INSUFFICIENT_WORLD_PERMISSIONS',
+      error: 'Insufficient world permissions.',
+    });
+    assert.equal(lookups, 0);
+    assert.equal(state.decision.transactionId, null);
+    assert.equal(state.events.length, 0);
+    assert.equal(state.auditLogs.length, 0);
+    await app.close();
+  });
+
+  test('rejects spoofed actor identity from request data', async () => {
+    const state = createDatabase();
+    attachConfirmedDecision(state);
+    let lookups = 0;
+    const app = await createApp(state.database, {
+      hiveBroadcaster: {
+        async confirmTransactionOperation() {
+          lookups += 1;
+          return createConfirmedOperation();
+        },
+      } as never,
+    });
+
+    const response = await app.inject({
+      headers: authHeader(reader),
+      method: 'POST',
+      payload: {
+        actorId: author.id,
+        operationIndex: 0,
+        transactionId: 'tx-valid',
+      },
+      url: '/worlds/world-1/proposals/proposal-1/canon-transaction/confirm',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().code, 'INVALID_CONFIRMATION_PAYLOAD');
+    assert.equal(lookups, 0);
+    assert.equal(state.decision.transactionId, null);
+    assert.equal(state.events.length, 0);
+    assert.equal(state.auditLogs.length, 0);
+    await app.close();
+  });
+
+  test('authorized proposal author can confirm a matching canon transaction', async () => {
+    const state = createDatabase();
+    attachConfirmedDecision(state);
+    const app = await createApp(state.database, {
+      hiveBroadcaster: {
+        async confirmTransactionOperation() {
+          return createConfirmedOperation('tx-valid');
+        },
+      } as never,
+    });
+
+    const response = await app.inject({
+      headers: authHeader(author),
+      method: 'POST',
+      payload: {
+        operationIndex: 0,
+        transactionId: 'tx-valid',
+      },
+      url: '/worlds/world-1/proposals/proposal-1/canon-transaction/confirm',
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().decision.transactionId, 'tx-valid');
+    assert.equal(response.json().idempotent, false);
+    assert.equal(state.decision.transactionId, 'tx-valid');
+    assert.equal(state.events.length, 1);
+    assert.equal(state.auditLogs.length, 1);
+    assert.equal(
+      (state.auditLogs[0] as { action: WorldAuditAction }).action,
+      WorldAuditAction.CANON_DECISION_CONFIRMED,
+    );
     await app.close();
   });
 });

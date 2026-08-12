@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ProposalDecisionOutcome, ProposalStatus, VoteChoice } from '../generated/prisma/enums.js';
+import {
+  ProposalDecisionOutcome,
+  ProposalStatus,
+  VoteChoice,
+  WorldRole,
+} from '../generated/prisma/enums.js';
 import { HIVELORE_CUSTOM_JSON_ID } from './hive/constants.js';
 import { buildHiveLoreCustomJsonOperation } from './hive/operations.js';
 import {
@@ -9,6 +14,7 @@ import {
   CanonVotingError,
   castCanonVote,
   confirmCanonTransaction,
+  createCanonTransactionOperation,
   finalizeCanonDecision,
   getProposalDetail,
 } from './canon-voting.js';
@@ -95,12 +101,32 @@ function createOperation(input: {
   };
 }
 
-function createDatabase(decision = createDecision()) {
+type ConfirmationMembership = {
+  revokedAt: Date | null;
+  role: WorldRole;
+  userId: string;
+  worldId: string;
+};
+
+function createDatabase(
+  decision = createDecision(),
+  memberships: ConfirmationMembership[] = [
+    {
+      revokedAt: null,
+      role: WorldRole.CONTRIBUTOR,
+      userId: 'author-1',
+      worldId: 'world-1',
+    },
+  ],
+) {
+  const auditLogs: unknown[] = [];
   const events: unknown[] = [];
   const proposal = {
     author: {
       hiveUsername: 'mira-vale.dev',
+      id: 'author-1',
     },
+    authorId: 'author-1',
     decision,
     id: 'proposal-1',
     worldId: 'world-1',
@@ -129,9 +155,53 @@ function createDatabase(decision = createDecision()) {
       },
     },
     proposalDecision: {
+      async findUnique(args: { where: { id: string } }) {
+        return args.where.id === decision.id ? decision : null;
+      },
       async update(args: { data: Record<string, unknown> }) {
         Object.assign(decision, args.data);
         return decision;
+      },
+      async updateMany(args: {
+        data: Record<string, unknown>;
+        where: {
+          hiveEventId: null;
+          id: string;
+          operationIndex: null;
+          transactionId: null;
+        };
+      }) {
+        if (
+          args.where.id === decision.id &&
+          decision.hiveEventId === null &&
+          decision.operationIndex === null &&
+          decision.transactionId === null
+        ) {
+          Object.assign(decision, args.data);
+          return { count: 1 };
+        }
+
+        return { count: 0 };
+      },
+    },
+    worldMembership: {
+      async findUnique(args: {
+        where: { revokedAt: null; worldId_userId: { userId: string; worldId: string } };
+      }) {
+        return (
+          memberships.find(
+            (membership) =>
+              membership.userId === args.where.worldId_userId.userId &&
+              membership.worldId === args.where.worldId_userId.worldId &&
+              membership.revokedAt === null,
+          ) ?? null
+        );
+      },
+    },
+    worldAuditLog: {
+      async create(args: { data: unknown }) {
+        auditLogs.push(args.data);
+        return args.data;
       },
     },
     $transaction<T>(callback: (transaction: unknown) => Promise<T>) {
@@ -140,6 +210,7 @@ function createDatabase(decision = createDecision()) {
   };
 
   return {
+    auditLogs,
     database,
     decision,
     events,
@@ -325,6 +396,7 @@ describe('canon voting Hive confirmation', () => {
     const hafClient = createHafClient(createOperation({ transactionId: 'tx-valid' }));
 
     const confirmed = await confirmCanonTransaction(state.database as never, {
+      actorId: 'author-1',
       blockNumber: 100,
       hafClient: hafClient as never,
       operationIndex: 0,
@@ -333,6 +405,7 @@ describe('canon voting Hive confirmation', () => {
       worldId: 'world-1',
     });
     const repeated = await confirmCanonTransaction(state.database as never, {
+      actorId: 'author-1',
       blockNumber: 100,
       hafClient: hafClient as never,
       operationIndex: 0,
@@ -346,6 +419,7 @@ describe('canon voting Hive confirmation', () => {
     assert.equal(confirmed.decision.transactionId, 'tx-valid');
     assert.equal(repeated.idempotent, true);
     assert.equal(state.events.length, 1);
+    assert.equal(state.auditLogs.length, 1);
   });
 
   test('rejects a different operation once the decision already has a Hive confirmation', async () => {
@@ -358,6 +432,7 @@ describe('canon voting Hive confirmation', () => {
 
     await assert.rejects(
       confirmCanonTransaction(state.database as never, {
+        actorId: 'author-1',
         blockNumber: 101,
         hafClient: createHafClient(createOperation({ transactionId: 'tx-other' })) as never,
         operationIndex: 0,
@@ -378,6 +453,7 @@ describe('canon voting Hive confirmation', () => {
 
     await assert.rejects(
       confirmCanonTransaction(state.database as never, {
+        actorId: 'author-1',
         blockNumber: 100,
         hafClient: createHafClient(
           createOperation({ authority: 'active', transactionId: 'tx-active' }),
@@ -412,6 +488,7 @@ describe('canon voting Hive confirmation', () => {
     };
 
     const confirmed = await confirmCanonTransaction(state.database as never, {
+      actorId: 'author-1',
       blockNumber: 100,
       hafClient: hafClient as never,
       operationIndex: 0,
@@ -428,6 +505,7 @@ describe('canon voting Hive confirmation', () => {
 
     await assert.rejects(
       confirmCanonTransaction(state.database as never, {
+        actorId: 'author-1',
         blockNumber: 100,
         hafClient: createHafClient({
           block_num: 100,
@@ -442,6 +520,116 @@ describe('canon voting Hive confirmation', () => {
       (error: unknown) =>
         error instanceof CanonVotingError && error.code === 'HIVE_OPERATION_NOT_FOUND',
     );
+  });
+
+  test('rejects confirmations by users other than the proposal author', async () => {
+    const state = createDatabase();
+
+    await assert.rejects(
+      confirmCanonTransaction(state.database as never, {
+        actorId: 'other-user',
+        blockNumber: 100,
+        hafClient: createHafClient(createOperation({ transactionId: 'tx-valid' })) as never,
+        operationIndex: 0,
+        proposalId: 'proposal-1',
+        transactionId: 'tx-valid',
+        worldId: 'world-1',
+      }),
+      (error: unknown) =>
+        error instanceof CanonVotingError && error.code === 'CONFIRMER_NOT_AUTHOR',
+    );
+
+    assert.equal(state.events.length, 0);
+    assert.equal(state.auditLogs.length, 0);
+  });
+
+  test('rejects the proposal author when their world role cannot submit proposals', async () => {
+    const state = createDatabase(createDecision(), [
+      {
+        revokedAt: null,
+        role: WorldRole.READER,
+        userId: 'author-1',
+        worldId: 'world-1',
+      },
+    ]);
+    let hafLookups = 0;
+
+    await assert.rejects(
+      confirmCanonTransaction(state.database as never, {
+        actorId: 'author-1',
+        blockNumber: 100,
+        hafClient: {
+          async searchBlocks() {
+            hafLookups += 1;
+            return {
+              operations: [createOperation({ transactionId: 'tx-valid' })],
+            };
+          },
+        } as never,
+        operationIndex: 0,
+        proposalId: 'proposal-1',
+        transactionId: 'tx-valid',
+        worldId: 'world-1',
+      }),
+      (error: unknown) =>
+        error instanceof CanonVotingError && error.code === 'INSUFFICIENT_WORLD_PERMISSIONS',
+    );
+
+    assert.equal(hafLookups, 0);
+    assert.equal(state.decision.transactionId, null);
+    assert.equal(state.events.length, 0);
+    assert.equal(state.auditLogs.length, 0);
+  });
+
+  test('rejects a stale concurrent confirmation claim without creating another permanent record', async () => {
+    const state = createDatabase(
+      createDecision({
+        operationIndex: 0,
+        transactionId: 'tx-original',
+      }),
+    );
+
+    await assert.rejects(
+      confirmCanonTransaction(state.database as never, {
+        actorId: 'author-1',
+        blockNumber: 100,
+        hafClient: createHafClient(createOperation({ transactionId: 'tx-loser' })) as never,
+        operationIndex: 0,
+        proposalId: 'proposal-1',
+        transactionId: 'tx-loser',
+        worldId: 'world-1',
+      }),
+      (error: unknown) =>
+        error instanceof CanonVotingError && error.code === 'DECISION_ALREADY_CONFIRMED',
+    );
+
+    assert.equal(state.decision.transactionId, 'tx-original');
+    assert.equal(state.events.length, 0);
+    assert.equal(state.auditLogs.length, 0);
+  });
+
+  test('does not reissue a signable canon transaction once a decision is confirmed', async () => {
+    const state = createDatabase(
+      createDecision({
+        hiveEventId: 'event-1',
+        operationIndex: 0,
+        transactionId: 'tx-original',
+      }),
+    );
+
+    await assert.rejects(
+      createCanonTransactionOperation(state.database as never, {
+        proposalId: 'proposal-1',
+        signerId: 'author-1',
+        worldId: 'world-1',
+      }),
+      (error: unknown) =>
+        error instanceof CanonVotingError && error.code === 'DECISION_ALREADY_CONFIRMED',
+    );
+
+    assert.equal(state.decision.transactionId, 'tx-original');
+    assert.equal(state.events.length, 0);
+    assert.equal(state.auditLogs.length, 0);
   });
 });
 

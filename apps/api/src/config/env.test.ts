@@ -77,6 +77,7 @@ describe('API environment validation', () => {
       '18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e',
     );
     assert.equal(env.HIVE_BROADCAST_MAX_ATTEMPTS, 4);
+    assert.equal(env.HIVE_BROADCAST_TOTAL_DEADLINE_MS, 90_000);
     assert.equal(env.HIVE_CONFIRMATION_TIMEOUT_MS, 60_000);
   });
 

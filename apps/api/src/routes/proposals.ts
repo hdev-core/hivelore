@@ -23,9 +23,12 @@ import {
 } from '../lib/proposal-comments.js';
 import { authorizeWorldPermission } from '../lib/world-authorization.js';
 import type { WorldMembershipLookup } from '../lib/world-authorization.js';
-import { WORLD_PERMISSIONS } from '../lib/world-permissions.js';
+import { roleHasWorldPermission, WORLD_PERMISSIONS } from '../lib/world-permissions.js';
 import { createHiveReliableBroadcaster } from '../lib/hive/client.js';
-import type { HiveReliableBroadcaster } from '../lib/hive/broadcast-reliability.js';
+import {
+  HiveBroadcastError,
+  type HiveReliableBroadcaster,
+} from '../lib/hive/broadcast-reliability.js';
 
 const paramsSchema = z.object({
   proposalId: z.string().min(1),
@@ -80,7 +83,32 @@ function handleCanonVotingError(error: unknown, reply: FastifyReply) {
     });
   }
 
+  if (error instanceof HiveBroadcastError) {
+    const statusCode = hiveBroadcastStatusCode(error);
+
+    return reply.code(statusCode).send({
+      code: error.code,
+      error: error.message,
+    });
+  }
+
   throw error;
+}
+
+function hiveBroadcastStatusCode(error: HiveBroadcastError) {
+  if (error.code === 'BROADCAST_REJECTED' || error.code === 'PERMANENT_TRANSACTION_ERROR') {
+    return 400;
+  }
+
+  if (error.code === 'TRANSACTION_EXPIRED') {
+    return 409;
+  }
+
+  if (error.code === 'NETWORK_CONFIGURATION_ERROR' || error.code === 'NETWORK_MISMATCH') {
+    return 503;
+  }
+
+  return 408;
 }
 
 function handleProposalCommentError(error: unknown, reply: FastifyReply) {
@@ -110,6 +138,47 @@ function proposalCommentRateLimitOptions(database: typeof prisma) {
     max: env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX,
     timeWindow: `${env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS} seconds`,
   };
+}
+
+async function authorizeCanonTransactionPermission(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  database: WorldMembershipLookup,
+  worldId: string,
+) {
+  if (!request.user) {
+    return false;
+  }
+
+  const membership = await database.worldMembership.findUnique({
+    select: {
+      id: true,
+      revokedAt: true,
+      role: true,
+      userId: true,
+      worldId: true,
+    },
+    where: {
+      revokedAt: null,
+      worldId_userId: {
+        userId: request.user.id,
+        worldId,
+      },
+    },
+  });
+
+  if (!membership || !roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.SUBMIT_PROPOSAL)) {
+    await reply.code(403).send({
+      code: 'INSUFFICIENT_WORLD_PERMISSIONS',
+      error: 'Insufficient world permissions.',
+    });
+
+    return false;
+  }
+
+  request.worldMembership = membership;
+
+  return true;
 }
 
 export async function registerProposalRoutes(
@@ -158,7 +227,7 @@ export async function registerProposalRoutes(
     }
 
     try {
-      return getVoteSummary(database, params.data);
+      return await getVoteSummary(database, params.data);
     } catch (error) {
       return handleCanonVotingError(error, reply);
     }
@@ -176,7 +245,7 @@ export async function registerProposalRoutes(
     }
 
     try {
-      return listProposalComments(database, {
+      return await listProposalComments(database, {
         cursor: query.data.cursor,
         pageSize: query.data.pageSize,
         proposalId: params.data.proposalId,
@@ -262,7 +331,7 @@ export async function registerProposalRoutes(
       }
 
       try {
-        return castCanonVote(database, {
+        return await castCanonVote(database, {
           choice: body.data.choice,
           proposalId: params.data.proposalId,
           voterId: request.user.id,
@@ -302,7 +371,7 @@ export async function registerProposalRoutes(
       }
 
       try {
-        return acknowledgeProposalAiWarning(database, {
+        return await acknowledgeProposalAiWarning(database, {
           actorId: request.user.id,
           proposalId: params.data.proposalId,
           worldId: params.data.worldId,
@@ -341,7 +410,7 @@ export async function registerProposalRoutes(
       }
 
       try {
-        return finalizeCanonDecision(database, {
+        return await finalizeCanonDecision(database, {
           actorId: request.user.id,
           proposalId: params.data.proposalId,
           worldId: params.data.worldId,
@@ -374,8 +443,19 @@ export async function registerProposalRoutes(
         });
       }
 
+      const authorized = await authorizeCanonTransactionPermission(
+        request,
+        reply,
+        database,
+        params.data.worldId,
+      );
+
+      if (!authorized) {
+        return;
+      }
+
       try {
-        return createCanonTransactionOperation(database, {
+        return await createCanonTransactionOperation(database, {
           proposalId: params.data.proposalId,
           signerId: request.user.id,
           worldId: params.data.worldId,
@@ -409,9 +489,21 @@ export async function registerProposalRoutes(
         });
       }
 
+      const authorized = await authorizeCanonTransactionPermission(
+        request,
+        reply,
+        database,
+        params.data.worldId,
+      );
+
+      if (!authorized) {
+        return;
+      }
+
       try {
-        return confirmCanonTransaction(database, {
+        return await confirmCanonTransaction(database, {
           ...body.data,
+          actorId: request.user.id,
           hafClient,
           hiveBroadcaster,
           proposalId: params.data.proposalId,

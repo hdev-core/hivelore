@@ -6,7 +6,7 @@ import {
   VoteChoice,
   WorldAuditAction,
 } from '../generated/prisma/enums.js';
-import type { HiveReliableBroadcaster } from './hive/broadcast-reliability.js';
+import { HiveBroadcastError, type HiveReliableBroadcaster } from './hive/broadcast-reliability.js';
 import { HIVELORE_CUSTOM_JSON_ID } from './hive/constants.js';
 import {
   buildHiveLoreCustomJsonOperation,
@@ -24,6 +24,7 @@ import {
   proposalStatusForDecision,
   tallyCanonVotes,
 } from './canon-voting-policy.js';
+import { roleHasWorldPermission, WORLD_PERMISSIONS } from './world-permissions.js';
 
 export class CanonVotingError extends Error {
   constructor(
@@ -242,13 +243,28 @@ export function serializeDecision(decision: ProposalWithDetails['decision']) {
   };
 }
 
+function tallyFromDecision(decision: NonNullable<ProposalWithDetails['decision']>) {
+  return {
+    alternateTimeline: decision.alternateTimelineCount,
+    approvalDenominator: decision.approvalDenominator,
+    approvalNumerator: decision.approvalNumerator,
+    approvalPercentageBps: decision.approvalPercentageBps,
+    approve: decision.approveCount,
+    needsRevision: decision.needsRevisionCount,
+    reject: decision.rejectCount,
+    totalVotes: decision.totalVotes,
+  };
+}
+
 export function serializeProposalDetail(
   proposal: ProposalWithDetails,
   currentUserId?: string | undefined,
 ) {
-  const summary = tallyCanonVotes(proposal.votes, {
-    excludeVoterIds: proposalAuthorExclusion(proposal.authorId),
-  });
+  const summary = proposal.decision
+    ? tallyFromDecision(proposal.decision)
+    : tallyCanonVotes(proposal.votes, {
+        excludeVoterIds: proposalAuthorExclusion(proposal.authorId),
+      });
   const currentVote = currentUserId
     ? proposal.votes.find((vote: { voterId: string }) => vote.voterId === currentUserId)
     : null;
@@ -349,6 +365,7 @@ export async function getVoteSummary(
         },
       },
       authorId: true,
+      decision: true,
       worldId: true,
     },
     where: {
@@ -362,11 +379,21 @@ export async function getVoteSummary(
   }
 
   return {
-    rules: CANON_VOTING_RULES,
+    rules: proposal.decision
+      ? {
+          approvalThresholdBps: proposal.decision.approvalThresholdBps,
+          minimumVotes: proposal.decision.minimumVotes,
+          payloadSchemaVersion: proposal.decision.payloadSchemaVersion,
+          rulesVersion: proposal.decision.rulesVersion,
+          votingWindowHours: proposal.decision.votingWindowHours,
+        }
+      : CANON_VOTING_RULES,
     status: proposal.status,
-    tally: tallyCanonVotes(proposal.votes, {
-      excludeVoterIds: proposalAuthorExclusion(proposal.authorId),
-    }),
+    tally: proposal.decision
+      ? tallyFromDecision(proposal.decision)
+      : tallyCanonVotes(proposal.votes, {
+          excludeVoterIds: proposalAuthorExclusion(proposal.authorId),
+        }),
     votingEndsAt: iso(proposal.votingEndsAt),
     votingStartedAt: iso(proposal.votingStartedAt),
   };
@@ -822,6 +849,24 @@ export async function createCanonTransactionOperation(
     );
   }
 
+  await assertCanSubmitCanonTransaction(database, {
+    actorId: input.signerId,
+    proposalAuthorId: proposal.authorId,
+    worldId: input.worldId,
+  });
+
+  if (
+    proposal.decision.transactionId ||
+    proposal.decision.operationIndex !== null ||
+    proposal.decision.hiveEventId
+  ) {
+    throw new CanonVotingError(
+      409,
+      'DECISION_ALREADY_CONFIRMED',
+      'Proposal decision is already linked to a Hive operation.',
+    );
+  }
+
   const signer = proposal.author.hiveUsername.toLowerCase();
   const operation = buildHiveLoreCustomJsonOperation({
     action: 'canon_approval',
@@ -858,10 +903,44 @@ function readHafTransactionId(row: HafOperationRow) {
 }
 
 function readHafOperationIndex(row: HafOperationRow) {
-  const value = row.operation_id ?? row.operationIndex ?? row.op_pos;
+  const value = row.operation_id ?? row.operationIndex ?? row.op_in_trx ?? row.op_pos;
   const numeric = typeof value === 'string' ? Number(value) : value;
 
   return typeof numeric === 'number' && Number.isInteger(numeric) ? numeric : null;
+}
+
+async function assertCanSubmitCanonTransaction(
+  database: CanonVotingDatabase | Prisma.TransactionClient,
+  input: { actorId: string; proposalAuthorId: string; worldId: string },
+) {
+  if (input.proposalAuthorId !== input.actorId) {
+    throw new CanonVotingError(
+      403,
+      'CONFIRMER_NOT_AUTHOR',
+      'Only the proposal author can confirm the canon decision transaction.',
+    );
+  }
+
+  const membership = await database.worldMembership.findUnique({
+    select: {
+      role: true,
+    },
+    where: {
+      revokedAt: null,
+      worldId_userId: {
+        userId: input.actorId,
+        worldId: input.worldId,
+      },
+    },
+  });
+
+  if (!membership || !roleHasWorldPermission(membership.role, WORLD_PERMISSIONS.SUBMIT_PROPOSAL)) {
+    throw new CanonVotingError(
+      403,
+      'INSUFFICIENT_WORLD_PERMISSIONS',
+      'Insufficient world permissions.',
+    );
+  }
 }
 
 async function findConfirmedOperation(input: {
@@ -874,13 +953,21 @@ async function findConfirmedOperation(input: {
   transactionId: string;
 }): Promise<NormalizedHiveOperation | null> {
   if (input.hiveBroadcaster) {
-    return input.hiveBroadcaster.confirmTransactionOperation({
-      blockNumberHint: input.blockNumber,
-      expectedOperation: input.expectedOperation,
-      expectedSigner: input.expectedSigner,
-      operationIndex: input.operationIndex,
-      transactionId: input.transactionId,
-    });
+    try {
+      return await input.hiveBroadcaster.confirmTransactionOperation({
+        blockNumberHint: input.blockNumber,
+        expectedOperation: input.expectedOperation,
+        expectedSigner: input.expectedSigner,
+        operationIndex: input.operationIndex,
+        transactionId: input.transactionId,
+      });
+    } catch (error) {
+      if (error instanceof HiveBroadcastError && error.code === 'BROADCAST_CONFIRMATION_TIMEOUT') {
+        return null;
+      }
+
+      throw error;
+    }
   }
 
   if (!input.blockNumber || input.operationIndex === undefined) {
@@ -923,6 +1010,7 @@ async function findConfirmedOperation(input: {
 export async function confirmCanonTransaction(
   database: CanonVotingDatabase,
   input: {
+    actorId: string;
     blockNumber?: number | undefined;
     hafClient: HafClient;
     hiveBroadcaster?: HiveReliableBroadcaster | undefined;
@@ -937,6 +1025,7 @@ export async function confirmCanonTransaction(
       author: {
         select: {
           hiveUsername: true,
+          id: true,
         },
       },
       decision: true,
@@ -956,6 +1045,12 @@ export async function confirmCanonTransaction(
   }
 
   const currentDecision = proposal.decision;
+
+  await assertCanSubmitCanonTransaction(database, {
+    actorId: input.actorId,
+    proposalAuthorId: proposal.author.id,
+    worldId: input.worldId,
+  });
 
   if (
     currentDecision.transactionId === input.transactionId &&
@@ -1049,6 +1144,47 @@ export async function confirmCanonTransaction(
   }
 
   return database.$transaction(async (transaction: Prisma.TransactionClient) => {
+    const confirmationClaim = await transaction.proposalDecision.updateMany({
+      data: {
+        blockchainTimestamp: operation.blockchainTimestamp,
+        blockNumber: operation.blockNumber,
+        customJsonId: HIVELORE_CUSTOM_JSON_ID,
+        expectedSigner: signer,
+        operationIndex: operation.operationIndex,
+        transactionId: operation.transactionId,
+      },
+      where: {
+        hiveEventId: null,
+        id: currentDecision.id,
+        operationIndex: null,
+        transactionId: null,
+      },
+    });
+
+    if (confirmationClaim.count !== 1) {
+      const confirmedDecision = await transaction.proposalDecision.findUnique({
+        where: {
+          id: currentDecision.id,
+        },
+      });
+
+      if (
+        confirmedDecision?.transactionId === operation.transactionId &&
+        confirmedDecision.operationIndex === operation.operationIndex
+      ) {
+        return {
+          decision: serializeDecision(confirmedDecision),
+          idempotent: true,
+        };
+      }
+
+      throw new CanonVotingError(
+        409,
+        'DECISION_ALREADY_CONFIRMED',
+        'Proposal decision is already linked to a different Hive operation.',
+      );
+    }
+
     const hiveEvent = await transaction.hiveEvent.upsert({
       create: {
         blockNumber: operation.blockNumber,
@@ -1074,16 +1210,27 @@ export async function confirmCanonTransaction(
 
     const confirmedDecision = await transaction.proposalDecision.update({
       data: {
-        blockchainTimestamp: operation.blockchainTimestamp,
-        blockNumber: operation.blockNumber,
-        customJsonId: HIVELORE_CUSTOM_JSON_ID,
-        expectedSigner: signer,
         hiveEventId: hiveEvent.id,
-        operationIndex: operation.operationIndex,
-        transactionId: operation.transactionId,
       },
       where: {
         id: currentDecision.id,
+      },
+    });
+
+    await transaction.worldAuditLog.create({
+      data: {
+        action: WorldAuditAction.CANON_DECISION_CONFIRMED,
+        actorId: input.actorId,
+        metadata: {
+          blockNumber: operation.blockNumber.toString(),
+          decisionId: currentDecision.id,
+          hiveEventId: hiveEvent.id,
+          operationIndex: operation.operationIndex,
+          transactionId: operation.transactionId,
+        },
+        targetId: currentDecision.id,
+        targetType: 'PROPOSAL_DECISION',
+        worldId: input.worldId,
       },
     });
 

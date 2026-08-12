@@ -6,7 +6,7 @@ export const CANON_VOTING_RULES = {
   approvalThresholdBps: 7_000,
   minimumVotes: 5,
   payloadSchemaVersion: 2,
-  rulesVersion: 'canon-voting-mvp-2026-08-11',
+  rulesVersion: 'canon-voting-mvp-2026-08-12',
   votingWindowHours: 48,
 } as const;
 
@@ -61,7 +61,9 @@ export function tallyCanonVotes(
     }
   }
 
-  const approvalDenominator = counts.approve + counts.reject;
+  const totalVotes =
+    counts.approve + counts.reject + counts.needsRevision + counts.alternateTimeline;
+  const approvalDenominator = totalVotes;
   const approvalPercentageBps =
     approvalDenominator > 0 ? Math.floor((counts.approve * 10_000) / approvalDenominator) : 0;
 
@@ -70,7 +72,7 @@ export function tallyCanonVotes(
     approvalDenominator,
     approvalNumerator: counts.approve,
     approvalPercentageBps,
-    totalVotes: counts.approve + counts.reject + counts.needsRevision + counts.alternateTimeline,
+    totalVotes,
   };
 }
 
