@@ -35,6 +35,16 @@ type AuthSessionContextValue = {
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
 
+let refreshSessionPromise: Promise<AuthSessionResponse> | null = null;
+
+function refreshAuthSessionOnce() {
+  refreshSessionPromise ??= refreshAuthSession().finally(() => {
+    refreshSessionPromise = null;
+  });
+
+  return refreshSessionPromise;
+}
+
 function createTimeoutSignal(milliseconds: number) {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return AbortSignal.timeout(milliseconds);
@@ -94,7 +104,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return latestSessionRef.current;
       }
 
-      return refreshAuthSession();
+      return refreshAuthSessionOnce();
     };
 
     const waitForBroadcastedSession = async () => {
