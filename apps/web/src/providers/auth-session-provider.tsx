@@ -22,7 +22,6 @@ import {
 const AUTH_SESSION_CHANNEL = 'hivelore-auth-session';
 const AUTH_REFRESH_LOCK = 'hivelore-auth-refresh';
 const AUTH_REFRESH_LOCK_TIMEOUT_MS = 10_000;
-const AUTH_REFRESH_REQUEST_TIMEOUT_MS = 10_000;
 const AUTH_REFRESH_BROADCAST_WAIT_MS = 750;
 
 type AuthSessionContextValue = {
@@ -95,9 +94,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return latestSessionRef.current;
       }
 
-      return refreshAuthSession({
-        signal: createTimeoutSignal(AUTH_REFRESH_REQUEST_TIMEOUT_MS),
-      });
+      return refreshAuthSession();
     };
 
     const waitForBroadcastedSession = async () => {
@@ -106,13 +103,6 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       if (
         latestSessionRef.current &&
         latestSessionRef.current.accessToken !== startingAccessToken
-      ) {
-        return latestSessionRef.current;
-      }
-
-      if (
-        latestSessionRef.current &&
-        latestSessionRef.current.accessToken === startingAccessToken
       ) {
         return latestSessionRef.current;
       }
