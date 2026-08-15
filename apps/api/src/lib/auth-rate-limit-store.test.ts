@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { createPrismaRateLimitStore } from './auth-rate-limit-store.js';
+import rateLimit from '@fastify/rate-limit';
+import Fastify from 'fastify';
+
+import { AuthProvider } from '../generated/prisma/enums.js';
+import { registerAuthRoutes } from '../routes/auth.js';
+import { createPrismaRateLimitStore, extractRateLimitRouteInfo } from './auth-rate-limit-store.js';
 
 function createDatabase() {
   const buckets = new Map<string, { count: number; expiresAt: Date }>();
@@ -120,5 +125,98 @@ describe('Prisma auth rate-limit store', () => {
     assert.equal((await increment(challengeStore)).current, 1);
     assert.equal((await increment(verifyStore)).current, 1);
     assert.equal(database.buckets.size, 2);
+  });
+
+  test('extracts nested Fastify routeInfo from child options', () => {
+    assert.deepEqual(
+      extractRateLimitRouteInfo({
+        max: 40,
+        routeInfo: {
+          method: 'POST',
+          path: '/auth/refresh',
+          url: '/auth/refresh',
+        },
+      } as never),
+      {
+        method: 'POST',
+        path: '/auth/refresh',
+        url: '/auth/refresh',
+      },
+    );
+  });
+
+  test('falls back safely when child options contain no route information', () => {
+    const routeInfo = extractRateLimitRouteInfo({} as never);
+
+    assert.equal(routeInfo.method, undefined);
+    assert.equal(routeInfo.path, undefined);
+    assert.equal(routeInfo.url, undefined);
+  });
+
+  test('exhausting refresh does not rate-limit challenge', async () => {
+    const database = createDatabase();
+    const Store = createPrismaRateLimitStore(database as never);
+    const app = Fastify();
+
+    await app.register(rateLimit, {
+      global: false,
+      skipOnError: false,
+      store: Store,
+    });
+    await registerAuthRoutes(app, {
+      challengeDatabase: {
+        authChallenge: {
+          async create(args: {
+            data: {
+              challengeHash: string;
+              expiresAt: Date;
+              issuedAt: Date;
+              nonceHash: string;
+              normalizedHiveUsername: string;
+              provider: AuthProvider;
+            };
+            select: { expiresAt: true; id: true };
+          }) {
+            return {
+              expiresAt: args.data.expiresAt,
+              id: 'challenge-1',
+            };
+          },
+          async deleteMany() {
+            return { count: 0 };
+          },
+        },
+      } as never,
+      signatureVerifier: {
+        async verifyPostingSignature() {
+          return false;
+        },
+      },
+    });
+
+    let refreshStatus = 0;
+
+    for (let index = 0; index < 41; index += 1) {
+      const response = await app.inject({
+        method: 'POST',
+        payload: {},
+        url: '/auth/refresh',
+      });
+      refreshStatus = response.statusCode;
+    }
+
+    const challenge = await app.inject({
+      method: 'POST',
+      payload: {
+        provider: 'keychain',
+        username: 'alice',
+      },
+      url: '/auth/challenge',
+    });
+
+    assert.equal(refreshStatus, 429);
+    assert.equal(challenge.statusCode, 200, challenge.body);
+    assert.equal(challenge.json().hiveUsername, 'alice');
+    await app.close();
   });
 });

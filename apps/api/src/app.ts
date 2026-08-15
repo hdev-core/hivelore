@@ -40,6 +40,9 @@ export async function buildApp() {
   await app.register(rateLimit, {
     global: false,
     skipOnError: false,
+    // Route scope already isolates /auth/refresh from /auth/challenge inside this shared
+    // namespace. A separate namespace is only warranted for independent cleanup, retention,
+    // or monitoring.
     store: createPrismaRateLimitStore(prisma),
   });
 

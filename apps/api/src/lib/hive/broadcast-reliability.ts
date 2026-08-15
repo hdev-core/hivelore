@@ -61,6 +61,11 @@ export interface HiveBroadcastTransport {
     nodeUrl?: string;
     signal?: AbortSignal;
   }): Promise<HafOperationRow[] | null>;
+  getBlockHeader?(params: {
+    blockNumber: number;
+    nodeUrl?: string;
+    signal?: AbortSignal;
+  }): Promise<{ timestamp?: string } | null>;
   searchBlocks(params: {
     fromBlock?: number;
     toBlock?: number;
@@ -186,7 +191,66 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
       throw new Error(message);
     }
 
-    return transactionLookupToRows(body.result, params.transactionId);
+    const blockNumber = readTransactionLookupBlockNumber(body.result);
+    const blockHeader = await this.getBlockHeader({
+      blockNumber,
+      nodeUrl,
+      ...(params.signal ? { signal: params.signal } : {}),
+    });
+    const blockTimestamp = readBlockHeaderTimestamp(blockHeader, blockNumber);
+
+    return transactionLookupToRows(body.result, params.transactionId, blockTimestamp);
+  }
+
+  async getBlockHeader(params: {
+    blockNumber: number;
+    nodeUrl?: string;
+    signal?: AbortSignal;
+  }): Promise<{ timestamp?: string } | null> {
+    const nodeUrl = params.nodeUrl ?? this.network.rpcNodes[0];
+
+    if (!nodeUrl) {
+      throw new HiveBroadcastError(
+        'NETWORK_CONFIGURATION_ERROR',
+        'No Hive RPC nodes are configured for block-header lookup.',
+        'permanent',
+      );
+    }
+
+    const response = await fetch(nodeUrl, {
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'condenser_api.get_block_header',
+        params: [params.blockNumber],
+      }),
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+      signal: createTimeoutSignal(DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs, params.signal),
+    });
+
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(`Hive block-header lookup failed: ${response.status} ${response.statusText}`),
+        { status: response.status },
+      );
+    }
+
+    const body = (await response.json()) as {
+      error?: { message?: string };
+      result?: unknown;
+    };
+
+    if (body.error) {
+      throw new Error(body.error.message ?? 'Hive block-header lookup failed.');
+    }
+
+    return body.result && typeof body.result === 'object'
+      ? (body.result as { timestamp?: string })
+      : null;
   }
 }
 
@@ -446,15 +510,25 @@ export class HiveReliableBroadcaster {
     nodeUrl: string;
     signal?: AbortSignal | undefined;
   }): Promise<ConfirmedBroadcastResult | null> {
-    const operation = await pollForConfirmedOperation({
-      confirmationTimeoutMs: input.confirmationTimeoutMs ?? this.retry.confirmationTimeoutMs,
-      clock: this.clock,
-      nodePool: this.confirmationPool,
-      input,
-      network: this.network,
-      pollIntervalMs: this.retry.confirmationPollIntervalMs,
-      transport: this.transport,
-    });
+    let operation: NormalizedHiveOperation | null;
+
+    try {
+      operation = await pollForConfirmedOperation({
+        confirmationTimeoutMs: input.confirmationTimeoutMs ?? this.retry.confirmationTimeoutMs,
+        clock: this.clock,
+        nodePool: this.confirmationPool,
+        input,
+        network: this.network,
+        pollIntervalMs: this.retry.confirmationPollIntervalMs,
+        transport: this.transport,
+      });
+    } catch (error) {
+      if (error instanceof HiveBroadcastError && error.code === 'BROADCAST_CONFIRMATION_TIMEOUT') {
+        return null;
+      }
+
+      throw error;
+    }
 
     return operation
       ? toConfirmedBroadcastResult({
@@ -495,6 +569,19 @@ export function classifyHiveBroadcastError(error: unknown): HiveBroadcastError {
       'PERMANENT_TRANSACTION_ERROR',
       'Hive transaction was permanently rejected.',
       'permanent',
+    );
+  }
+
+  if (
+    lower.includes('block metadata') ||
+    lower.includes('block header') ||
+    lower.includes('transaction id mismatch')
+  ) {
+    return new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Hive confirmation failed closed on invalid read-back metadata.',
+      'permanent',
+      { reason: lower.includes('transaction id mismatch') ? 'transaction_id_mismatch' : undefined },
     );
   }
 
@@ -552,6 +639,8 @@ export async function pollForConfirmedOperation(input: {
   const startedAt = input.clock.now();
   let fromBlock = input.input.blockNumberHint;
   const pageSize = 100;
+  let lastFailure: HiveBroadcastError | null = null;
+  let sawTransaction = false;
 
   while (input.clock.now() - startedAt <= input.confirmationTimeoutMs) {
     throwIfAborted(input.input.signal);
@@ -567,6 +656,7 @@ export async function pollForConfirmedOperation(input: {
         });
 
         if (transactionRows) {
+          sawTransaction = true;
           const confirmed = findAndVerifyOperation(transactionRows, input.input);
 
           if (confirmed) {
@@ -633,6 +723,7 @@ export async function pollForConfirmedOperation(input: {
       }
     } catch (error) {
       const classified = classifyHiveBroadcastError(error);
+      lastFailure = classified;
 
       if (classified.failureClass === 'permanent') {
         throw classified;
@@ -645,6 +736,36 @@ export async function pollForConfirmedOperation(input: {
 
     fromBlock = undefined;
     await input.clock.sleep(input.pollIntervalMs, input.input.signal);
+  }
+
+  if (lastFailure) {
+    throw new HiveBroadcastError(
+      'BROADCAST_CONFIRMATION_TIMEOUT',
+      'Hive transaction was not confirmed before the timeout.',
+      'unknown',
+      {
+        lastFailure: {
+          code: lastFailure.code,
+          diagnostics: lastFailure.diagnostics,
+          failureClass: lastFailure.failureClass,
+          message: lastFailure.message,
+        },
+        reason: 'last_rpc_or_response_failure',
+        transactionId: input.input.transactionId,
+      },
+    );
+  }
+
+  if (!sawTransaction) {
+    throw new HiveBroadcastError(
+      'BROADCAST_CONFIRMATION_TIMEOUT',
+      'Hive transaction was not found before the confirmation timeout.',
+      'unknown',
+      {
+        reason: 'transaction_not_found_yet',
+        transactionId: input.input.transactionId,
+      },
+    );
   }
 
   return null;
@@ -668,11 +789,18 @@ export function findAndVerifyOperation(
     try {
       operation = normalizeHafOperation(row);
     } catch (error) {
+      if (input.operationIndex === undefined) {
+        continue;
+      }
+
       throw new HiveBroadcastError(
         'BROADCAST_REJECTED',
         'Confirmed Hive row for the transaction could not be normalized.',
         'permanent',
-        { cause: error instanceof Error ? error.message : String(error) },
+        {
+          cause: error instanceof Error ? error.message : String(error),
+          reason: 'operation_normalization_failed',
+        },
       );
     }
 
@@ -686,6 +814,7 @@ export function findAndVerifyOperation(
         'BROADCAST_REJECTED',
         verification.reason ?? 'Confirmed Hive operation did not pass verification.',
         'permanent',
+        { reason: verification.reason ?? 'operation_verification_failed' },
       );
     }
 
@@ -694,6 +823,7 @@ export function findAndVerifyOperation(
         'BROADCAST_REJECTED',
         'Confirmed Hive operation does not match the expected operation.',
         'permanent',
+        { reason: 'payload_mismatch' },
       );
     }
 
@@ -736,7 +866,11 @@ function normalizeSearchPage(
   return Array.isArray(page) ? { operations: page } : page;
 }
 
-function transactionLookupToRows(result: unknown, transactionId: string): HafOperationRow[] | null {
+function transactionLookupToRows(
+  result: unknown,
+  transactionId: string,
+  blockTimestamp: string,
+): HafOperationRow[] | null {
   if (!result || typeof result !== 'object') {
     return null;
   }
@@ -745,7 +879,6 @@ function transactionLookupToRows(result: unknown, transactionId: string): HafOpe
     block_num?: number | string;
     blockNumber?: number | string;
     block?: number | string;
-    expiration?: string;
     operations?: unknown;
     timestamp?: string;
     block_time?: string;
@@ -760,7 +893,19 @@ function transactionLookupToRows(result: unknown, transactionId: string): HafOpe
 
   const resolvedTransactionId =
     transaction.transaction_id ?? transaction.transactionId ?? transaction.trx_id ?? transactionId;
-  const timestamp = transaction.timestamp ?? transaction.block_time ?? transaction.expiration;
+
+  if (resolvedTransactionId !== transactionId) {
+    throw new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Hive transaction lookup returned a transaction ID mismatch.',
+      'permanent',
+      {
+        reason: 'transaction_id_mismatch',
+        requestedTransactionId: transactionId,
+        returnedTransactionId: resolvedTransactionId,
+      },
+    );
+  }
 
   return transaction.operations.map((operationValue, index) => {
     const blockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
@@ -769,10 +914,66 @@ function transactionLookupToRows(result: unknown, transactionId: string): HafOpe
       ...(blockNumber === undefined ? {} : { block_num: blockNumber }),
       operation: normalizeCondenserOperation(operationValue),
       operation_id: index,
-      ...(timestamp === undefined ? {} : { timestamp }),
+      timestamp: blockTimestamp,
       transaction_id: resolvedTransactionId,
     };
   });
+}
+
+function readTransactionLookupBlockNumber(result: unknown): number {
+  if (!result || typeof result !== 'object') {
+    throw new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Confirmed Hive transaction lookup did not include usable block metadata.',
+      'permanent',
+      { reason: 'missing_transaction_result' },
+    );
+  }
+
+  const transaction = result as {
+    block_num?: number | string;
+    blockNumber?: number | string;
+    block?: number | string;
+  };
+  const rawBlockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
+  const blockNumber = typeof rawBlockNumber === 'string' ? Number(rawBlockNumber) : rawBlockNumber;
+
+  if (typeof blockNumber !== 'number' || !Number.isInteger(blockNumber) || blockNumber <= 0) {
+    throw new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Confirmed Hive transaction lookup did not include usable block metadata.',
+      'permanent',
+      { reason: 'missing_or_invalid_block_number' },
+    );
+  }
+
+  return blockNumber;
+}
+
+function readBlockHeaderTimestamp(
+  blockHeader: { timestamp?: string } | null,
+  blockNumber: number,
+): string {
+  const timestamp = blockHeader?.timestamp;
+  const normalizedTimestamp =
+    typeof timestamp === 'string' && !/[zZ]|[+-]\d\d:?\d\d$/.test(timestamp)
+      ? `${timestamp}Z`
+      : timestamp;
+  const parsed = typeof normalizedTimestamp === 'string' ? new Date(normalizedTimestamp) : null;
+
+  if (!parsed || Number.isNaN(parsed.getTime())) {
+    throw new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Confirmed Hive block header did not include a valid timestamp.',
+      'permanent',
+      {
+        blockNumber,
+        reason: 'missing_or_invalid_block_timestamp',
+      },
+    );
+  }
+
+  return parsed.toISOString();
 }
 
 function normalizeCondenserOperation(operationValue: unknown): unknown {

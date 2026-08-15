@@ -412,8 +412,16 @@ describe('canon voting Hive confirmation', () => {
     assert.equal(confirmed.idempotent, false);
     assert.ok(confirmed.decision);
     assert.equal(confirmed.decision.transactionId, 'tx-valid');
+    assert.equal(
+      confirmed.decision.blockchainTimestamp,
+      new Date('2026-08-12T12:05:00.000Z').toISOString(),
+    );
     assert.equal(repeated.idempotent, true);
     assert.equal(state.events.length, 1);
+    assert.equal(
+      (state.events[0] as { blockchainTimestamp: Date }).blockchainTimestamp.toISOString(),
+      '2026-08-12T12:05:00.000Z',
+    );
     assert.equal(state.auditLogs.length, 1);
   });
 

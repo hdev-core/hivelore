@@ -1,10 +1,26 @@
 import { parseHiveLoreCommentMetadata, parseHiveLoreCustomJsonPayload } from './operations.js';
+import { verifyHiveLoreSmokeOperation } from './smoke-operation.js';
 import type { HiveLoreOperation, HiveOperationVerification } from './types.js';
 
 export function verifyHiveLoreOperation(input: {
   operation: HiveLoreOperation;
   expectedSigner?: string;
 }): HiveOperationVerification {
+  if (input.expectedSigner) {
+    const smokeVerification = verifyHiveLoreSmokeOperation({
+      expectedSigner: input.expectedSigner,
+      operation: input.operation,
+    });
+
+    if (smokeVerification.ok) {
+      return {
+        ok: true,
+        payload: smokeVerification.payload,
+        signer: smokeVerification.signer,
+      };
+    }
+  }
+
   const customJsonPayload = parseHiveLoreCustomJsonPayload(input.operation);
 
   if (customJsonPayload) {

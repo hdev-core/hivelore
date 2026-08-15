@@ -714,13 +714,33 @@ Successful confirmed broadcasts return a structured result containing the networ
 
 Mainnet smoke test:
 
-1. Build a harmless uniquely identifiable HiveLore `custom_json` operation.
-2. Sign non-custodially with Hive Keychain or HiveSigner. Do not paste private keys into the API or logs.
-3. Broadcast the signed transaction through the reliability layer or browser signer, then submit only the transaction ID and optional block/operation hints to the API confirmation endpoint.
-4. Confirm through HAF/indexer read-back and record network, transaction ID, block number, blockchain timestamp, confirmation time, confirmation source, signer, operation type, and read-back link.
-5. Re-run confirmation for the same transaction ID to verify idempotency.
+1. Build the harmless HiveLore `custom_json` operation with ID `hivelore_smoke`.
+2. Use posting authority only: `required_auths` must be empty and `required_posting_auths` must contain the signing account. If active or owner authority is requested, treat it as a bug and stop.
+3. Use this exact JSON payload, which contains no personal data or secrets:
 
-Mainnet smoke tests must not be run without explicit approval of the account, exact operation, and expected permanence. Prefer a minimal approved `custom_json` smoke operation; never automate or bypass the user's signing approval.
+```json
+{
+  "type": "hivelore_mainnet_smoke",
+  "version": 1,
+  "purpose": "broadcast-readback verification"
+}
+```
+
+4. Sign from the local process environment only. Never hardcode, print, persist, or commit a Hive private key.
+5. Broadcast through the existing WAX client and reliability broadcaster, preserving multi-node RPC failover.
+6. Confirm through `condenser_api.get_transaction`, verify transaction ID, signer, `custom_json` ID, posting authority, and payload, then read `block_num` from that transaction.
+7. Call `condenser_api.get_block_header(block_num)` and use that header timestamp as the blockchain timestamp. Never use transaction expiration as the blockchain timestamp.
+8. Print only the transaction ID, block number, block timestamp, RPC node used, and pass/fail verification summary after the irreversible broadcast.
+
+Run the real smoke test only after reviewing the account and permanence warning:
+
+```powershell
+$env:HIVE_SMOKE_ACCOUNT = "<your-hive-account>"
+$env:HIVE_SMOKE_POSTING_KEY = "<your-posting-private-key>"
+npm run smoke:hive-mainnet
+```
+
+The command prompts for `BROADCAST HIVELORE SMOKE` immediately before broadcasting. Mainnet smoke tests must not be run without explicit approval of the account, exact operation, and expected permanence.
 
 ### Standalone HAF Indexer
 

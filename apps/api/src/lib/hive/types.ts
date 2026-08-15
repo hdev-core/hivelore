@@ -44,6 +44,12 @@ export interface HiveLoreCustomJsonPayload {
   payload: Record<string, unknown>;
 }
 
+export interface HiveLoreSmokePayload {
+  type: 'hivelore_mainnet_smoke';
+  version: 1;
+  purpose: 'broadcast-readback verification';
+}
+
 export interface BuiltHiveTransaction {
   transaction: ApiTransaction;
   binaryHex: string;
@@ -105,5 +111,5 @@ export interface HiveOperationVerification {
   signer?: string;
   entityType?: HiveLoreEntityType;
   entityId?: string;
-  payload?: HiveLoreMetadata | HiveLoreCustomJsonPayload;
+  payload?: HiveLoreMetadata | HiveLoreCustomJsonPayload | HiveLoreSmokePayload;
 }

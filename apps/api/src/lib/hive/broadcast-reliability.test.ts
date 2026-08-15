@@ -6,6 +6,7 @@ import { buildHiveLoreCustomJsonOperation } from './operations.js';
 import {
   classifyHiveBroadcastError,
   delayForAttempt,
+  DefaultHiveBroadcastTransport,
   findAndVerifyOperation,
   HiveBroadcastError,
   HiveNodePool,
@@ -71,6 +72,136 @@ function fakeClock(random = 0.5) {
 }
 
 describe('Hive broadcast reliability', () => {
+  test('transaction lookup uses the confirmed block header timestamp instead of expiration', async () => {
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
+    const calls: Array<{ method: string; params: unknown[] }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+      calls.push({ method: body.method, params: body.params });
+
+      if (body.method === 'condenser_api.get_transaction') {
+        return Response.json({
+          result: {
+            block_num: 101,
+            expiration: '2026-08-10T12:11:00',
+            operations: [['custom_json', customJson]],
+            trx_id: 'tx-1',
+          },
+        });
+      }
+
+      if (body.method === 'condenser_api.get_block_header') {
+        return Response.json({
+          result: {
+            previous: '00000000',
+            timestamp: '2026-08-10T12:01:00',
+          },
+        });
+      }
+
+      return Response.json({ result: null });
+    }) as typeof fetch;
+
+    try {
+      const rows = await new DefaultHiveBroadcastTransport(network).getTransaction({
+        transactionId: 'tx-1',
+      });
+      const confirmed = findAndVerifyOperation(rows ?? [], {
+        expectedOperation: operation,
+        expectedSigner: 'mira-vale.dev',
+        transactionId: 'tx-1',
+      });
+
+      assert.equal(confirmed?.blockchainTimestamp.toISOString(), '2026-08-10T12:01:00.000Z');
+      assert.notEqual(confirmed?.blockchainTimestamp.toISOString(), '2026-08-10T12:11:00.000Z');
+      assert.deepEqual(calls, [
+        { method: 'condenser_api.get_transaction', params: ['tx-1'] },
+        { method: 'condenser_api.get_block_header', params: [101] },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('transaction lookup fails closed when block metadata is missing or invalid', async () => {
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { method: string };
+
+      if (body.method === 'condenser_api.get_transaction') {
+        return Response.json({
+          result: {
+            block_num: 101,
+            operations: [['custom_json', customJson]],
+            trx_id: 'tx-1',
+          },
+        });
+      }
+
+      return Response.json({
+        result: {
+          timestamp: 'not-a-date',
+        },
+      });
+    }) as typeof fetch;
+
+    try {
+      await assert.rejects(
+        () => new DefaultHiveBroadcastTransport(network).getTransaction({ transactionId: 'tx-1' }),
+        (error: unknown) =>
+          error instanceof HiveBroadcastError &&
+          error.code === 'BROADCAST_REJECTED' &&
+          error.diagnostics.reason === 'missing_or_invalid_block_timestamp',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('transaction lookup rejects mismatched transaction IDs with diagnostics', async () => {
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { method: string };
+
+      if (body.method === 'condenser_api.get_transaction') {
+        return Response.json({
+          result: {
+            block_num: 101,
+            operations: [['custom_json', customJson]],
+            trx_id: 'tx-other',
+          },
+        });
+      }
+
+      return Response.json({
+        result: {
+          timestamp: '2026-08-10T12:01:00',
+        },
+      });
+    }) as typeof fetch;
+
+    try {
+      await assert.rejects(
+        () => new DefaultHiveBroadcastTransport(network).getTransaction({ transactionId: 'tx-1' }),
+        (error: unknown) =>
+          error instanceof HiveBroadcastError &&
+          error.code === 'BROADCAST_REJECTED' &&
+          error.diagnostics.reason === 'transaction_id_mismatch',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('retries a transient broadcast failure on the next node and confirms through HAF', async () => {
     const calls: string[] = [];
     const clock = fakeClock();
@@ -460,6 +591,114 @@ describe('Hive broadcast reliability', () => {
     assert.equal(result.transactionId, 'tx-1');
     assert.equal(transactionLookups, 1);
     assert.equal(blockSearches, 0);
+  });
+
+  test('polls again when transaction lookup has not found the transaction yet', async () => {
+    let transactionLookups = 0;
+    const broadcaster = new HiveReliableBroadcaster(
+      network,
+      {
+        async broadcast() {},
+        async getHeadBlock() {
+          return 101;
+        },
+        async getTransaction() {
+          transactionLookups += 1;
+
+          return transactionLookups === 1 ? null : [row()];
+        },
+        async searchBlocks() {
+          throw new Error('block-search should not be used when transaction lookup exists');
+        },
+      },
+      {
+        confirmationPollIntervalMs: 1,
+        confirmationTimeoutMs: 10,
+      },
+      fakeClock(),
+    );
+
+    const result = await broadcaster.confirmTransaction({
+      expectedOperation: operation,
+      expectedSigner: 'mira-vale.dev',
+      transactionId: 'tx-1',
+    });
+
+    assert.equal(transactionLookups, 2);
+    assert.equal(result.transactionId, 'tx-1');
+  });
+
+  test('skips malformed same-transaction rows when operation index is omitted', () => {
+    const confirmed = findAndVerifyOperation(
+      [
+        {
+          block_num: 101,
+          operation_id: 0,
+          timestamp: '2026-08-10T12:01:00.000Z',
+          transaction_id: 'tx-1',
+        },
+        {
+          ...row(),
+          operation_id: 1,
+        },
+      ],
+      {
+        expectedOperation: operation,
+        expectedSigner: 'mira-vale.dev',
+        transactionId: 'tx-1',
+      },
+    );
+
+    assert.equal(confirmed?.operationIndex, 1);
+  });
+
+  test('reports malformed explicit operation-index rows instead of skipping them', () => {
+    assert.throws(
+      () =>
+        findAndVerifyOperation(
+          [
+            {
+              block_num: 101,
+              operation_id: 0,
+              timestamp: '2026-08-10T12:01:00.000Z',
+              transaction_id: 'tx-1',
+            },
+            {
+              ...row(),
+              operation_id: 1,
+            },
+          ],
+          {
+            expectedOperation: operation,
+            expectedSigner: 'mira-vale.dev',
+            operationIndex: 0,
+            transactionId: 'tx-1',
+          },
+        ),
+      (error: unknown) =>
+        error instanceof HiveBroadcastError &&
+        error.diagnostics.reason === 'operation_normalization_failed',
+    );
+  });
+
+  test('returns null when omitted operation index has no valid matching operation', () => {
+    const confirmed = findAndVerifyOperation(
+      [
+        {
+          block_num: 101,
+          operation_id: 0,
+          timestamp: '2026-08-10T12:01:00.000Z',
+          transaction_id: 'tx-1',
+        },
+      ],
+      {
+        expectedOperation: operation,
+        expectedSigner: 'mira-vale.dev',
+        transactionId: 'tx-1',
+      },
+    );
+
+    assert.equal(confirmed, null);
   });
 
   test('calculates capped exponential backoff with bounded jitter', () => {
