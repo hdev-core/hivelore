@@ -204,12 +204,8 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
     nodeUrl: string;
     result: unknown;
     signal?: AbortSignal | undefined;
-  }): Promise<string | undefined> {
+  }): Promise<string> {
     const blockNumber = getTransactionBlockNumber(input.result);
-
-    if (blockNumber === undefined) {
-      return undefined;
-    }
 
     const response = await fetch(input.nodeUrl, {
       body: JSON.stringify({
@@ -242,11 +238,27 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
       throw new Error(body.error.message ?? 'Hive block header lookup failed.');
     }
 
-    if (typeof body.result?.timestamp !== 'string' || !body.result.timestamp.trim()) {
-      throw new Error('Hive block header response did not include a timestamp.');
+    const timestamp = body.result?.timestamp;
+    const normalizedTimestamp =
+      typeof timestamp === 'string' && !/[zZ]|[+-]\d\d:?\d\d$/.test(timestamp)
+        ? `${timestamp}Z`
+        : timestamp;
+    const parsedTimestamp =
+      typeof normalizedTimestamp === 'string' ? new Date(normalizedTimestamp) : null;
+
+    if (!parsedTimestamp || Number.isNaN(parsedTimestamp.getTime())) {
+      throw new HiveBroadcastError(
+        'BROADCAST_REJECTED',
+        'Confirmed Hive block header did not include a valid timestamp.',
+        'permanent',
+        {
+          blockNumber,
+          reason: 'missing_or_invalid_block_timestamp',
+        },
+      );
     }
 
-    return body.result.timestamp;
+    return parsedTimestamp.toISOString();
   }
 }
 
@@ -865,7 +877,7 @@ function normalizeSearchPage(
 function transactionLookupToRows(
   result: unknown,
   transactionId: string,
-  blockchainTimestamp?: string | undefined,
+  blockchainTimestamp: string,
 ): HafOperationRow[] | null {
   if (!result || typeof result !== 'object') {
     return null;
@@ -888,6 +900,19 @@ function transactionLookupToRows(
   const resolvedTransactionId =
     transaction.transaction_id ?? transaction.transactionId ?? transaction.trx_id ?? transactionId;
 
+  if (resolvedTransactionId !== transactionId) {
+    throw new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Hive transaction lookup returned a transaction ID mismatch.',
+      'permanent',
+      {
+        reason: 'transaction_id_mismatch',
+        requestedTransactionId: transactionId,
+        returnedTransactionId: resolvedTransactionId,
+      },
+    );
+  }
+
   return transaction.operations.map((operationValue, index) => {
     const blockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
 
@@ -895,15 +920,20 @@ function transactionLookupToRows(
       ...(blockNumber === undefined ? {} : { block_num: blockNumber }),
       operation: normalizeCondenserOperation(operationValue),
       operation_id: index,
-      ...(blockchainTimestamp === undefined ? {} : { timestamp: blockchainTimestamp }),
+      timestamp: blockchainTimestamp,
       transaction_id: resolvedTransactionId,
     };
   });
 }
 
-function getTransactionBlockNumber(result: unknown): number | undefined {
+function getTransactionBlockNumber(result: unknown): number {
   if (!result || typeof result !== 'object') {
-    return undefined;
+    throw new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Confirmed Hive transaction lookup did not include usable block metadata.',
+      'permanent',
+      { reason: 'missing_transaction_result' },
+    );
   }
 
   const transaction = result as {
@@ -914,7 +944,16 @@ function getTransactionBlockNumber(result: unknown): number | undefined {
   const rawBlockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
   const blockNumber = typeof rawBlockNumber === 'string' ? Number(rawBlockNumber) : rawBlockNumber;
 
-  return typeof blockNumber === 'number' && Number.isInteger(blockNumber) ? blockNumber : undefined;
+  if (typeof blockNumber !== 'number' || !Number.isInteger(blockNumber) || blockNumber <= 0) {
+    throw new HiveBroadcastError(
+      'BROADCAST_REJECTED',
+      'Confirmed Hive transaction lookup did not include usable block metadata.',
+      'permanent',
+      { reason: 'missing_or_invalid_block_number' },
+    );
+  }
+
+  return blockNumber;
 }
 
 function normalizeCondenserOperation(operationValue: unknown): unknown {

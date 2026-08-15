@@ -6,9 +6,10 @@ import { hiveAccountNameSchema } from './operations.js';
 import type { HiveLoreOperation } from './types.js';
 
 export const HIVELORE_MAINNET_SMOKE_PAYLOAD = {
-  type: 'hivelore_mainnet_smoke',
+  app: 'hivelore',
+  type: 'mainnet_smoke',
   version: 1,
-  purpose: 'broadcast-readback verification',
+  purpose: 'broadcast_readback_verification',
 } as const;
 
 export function buildHiveLoreSmokeCustomJsonOperation(account: string): HiveLoreOperation {

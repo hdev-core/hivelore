@@ -644,7 +644,7 @@ describe('Hive broadcast reliability', () => {
         'condenser_api.get_transaction',
         'condenser_api.get_block_header',
       ]);
-      assert.equal(rows?.[0]?.timestamp, '2026-08-10T12:01:00');
+      assert.equal(rows?.[0]?.timestamp, '2026-08-10T12:01:00.000Z');
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -45,9 +45,10 @@ export interface HiveLoreCustomJsonPayload {
 }
 
 export interface HiveLoreSmokePayload {
-  type: 'hivelore_mainnet_smoke';
+  app: 'hivelore';
+  type: 'mainnet_smoke';
   version: 1;
-  purpose: 'broadcast-readback verification';
+  purpose: 'broadcast_readback_verification';
 }
 
 export interface BuiltHiveTransaction {
