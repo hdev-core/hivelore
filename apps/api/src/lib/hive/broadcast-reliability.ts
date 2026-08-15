@@ -191,66 +191,62 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
       throw new Error(message);
     }
 
-    const blockNumber = readTransactionLookupBlockNumber(body.result);
-    const blockHeader = await this.getBlockHeader({
-      blockNumber,
+    const blockchainTimestamp = await this.getBlockTimestamp({
       nodeUrl,
-      ...(params.signal ? { signal: params.signal } : {}),
+      result: body.result,
+      signal: params.signal,
     });
-    const blockTimestamp = readBlockHeaderTimestamp(blockHeader, blockNumber);
 
-    return transactionLookupToRows(body.result, params.transactionId, blockTimestamp);
+    return transactionLookupToRows(body.result, params.transactionId, blockchainTimestamp);
   }
 
-  async getBlockHeader(params: {
-    blockNumber: number;
-    nodeUrl?: string;
-    signal?: AbortSignal;
-  }): Promise<{ timestamp?: string } | null> {
-    const nodeUrl = params.nodeUrl ?? this.network.rpcNodes[0];
+  private async getBlockTimestamp(input: {
+    nodeUrl: string;
+    result: unknown;
+    signal?: AbortSignal | undefined;
+  }): Promise<string | undefined> {
+    const blockNumber = getTransactionBlockNumber(input.result);
 
-    if (!nodeUrl) {
-      throw new HiveBroadcastError(
-        'NETWORK_CONFIGURATION_ERROR',
-        'No Hive RPC nodes are configured for block-header lookup.',
-        'permanent',
-      );
+    if (blockNumber === undefined) {
+      return undefined;
     }
 
-    const response = await fetch(nodeUrl, {
+    const response = await fetch(input.nodeUrl, {
       body: JSON.stringify({
         id: 1,
         jsonrpc: '2.0',
         method: 'condenser_api.get_block_header',
-        params: [params.blockNumber],
+        params: [blockNumber],
       }),
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
       },
       method: 'POST',
-      signal: createTimeoutSignal(DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs, params.signal),
+      signal: createTimeoutSignal(DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs, input.signal),
     });
 
     if (!response.ok) {
       throw Object.assign(
-        new Error(`Hive block-header lookup failed: ${response.status} ${response.statusText}`),
+        new Error(`Hive block header lookup failed: ${response.status} ${response.statusText}`),
         { status: response.status },
       );
     }
 
     const body = (await response.json()) as {
       error?: { message?: string };
-      result?: unknown;
+      result?: { timestamp?: unknown };
     };
 
     if (body.error) {
-      throw new Error(body.error.message ?? 'Hive block-header lookup failed.');
+      throw new Error(body.error.message ?? 'Hive block header lookup failed.');
     }
 
-    return body.result && typeof body.result === 'object'
-      ? (body.result as { timestamp?: string })
-      : null;
+    if (typeof body.result?.timestamp !== 'string' || !body.result.timestamp.trim()) {
+      throw new Error('Hive block header response did not include a timestamp.');
+    }
+
+    return body.result.timestamp;
   }
 }
 
@@ -869,7 +865,7 @@ function normalizeSearchPage(
 function transactionLookupToRows(
   result: unknown,
   transactionId: string,
-  blockTimestamp: string,
+  blockchainTimestamp?: string | undefined,
 ): HafOperationRow[] | null {
   if (!result || typeof result !== 'object') {
     return null;
@@ -880,8 +876,6 @@ function transactionLookupToRows(
     blockNumber?: number | string;
     block?: number | string;
     operations?: unknown;
-    timestamp?: string;
-    block_time?: string;
     transaction_id?: string;
     transactionId?: string;
     trx_id?: string;
@@ -894,19 +888,6 @@ function transactionLookupToRows(
   const resolvedTransactionId =
     transaction.transaction_id ?? transaction.transactionId ?? transaction.trx_id ?? transactionId;
 
-  if (resolvedTransactionId !== transactionId) {
-    throw new HiveBroadcastError(
-      'BROADCAST_REJECTED',
-      'Hive transaction lookup returned a transaction ID mismatch.',
-      'permanent',
-      {
-        reason: 'transaction_id_mismatch',
-        requestedTransactionId: transactionId,
-        returnedTransactionId: resolvedTransactionId,
-      },
-    );
-  }
-
   return transaction.operations.map((operationValue, index) => {
     const blockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
 
@@ -914,20 +895,15 @@ function transactionLookupToRows(
       ...(blockNumber === undefined ? {} : { block_num: blockNumber }),
       operation: normalizeCondenserOperation(operationValue),
       operation_id: index,
-      timestamp: blockTimestamp,
+      ...(blockchainTimestamp === undefined ? {} : { timestamp: blockchainTimestamp }),
       transaction_id: resolvedTransactionId,
     };
   });
 }
 
-function readTransactionLookupBlockNumber(result: unknown): number {
+function getTransactionBlockNumber(result: unknown): number | undefined {
   if (!result || typeof result !== 'object') {
-    throw new HiveBroadcastError(
-      'BROADCAST_REJECTED',
-      'Confirmed Hive transaction lookup did not include usable block metadata.',
-      'permanent',
-      { reason: 'missing_transaction_result' },
-    );
+    return undefined;
   }
 
   const transaction = result as {
@@ -938,42 +914,7 @@ function readTransactionLookupBlockNumber(result: unknown): number {
   const rawBlockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
   const blockNumber = typeof rawBlockNumber === 'string' ? Number(rawBlockNumber) : rawBlockNumber;
 
-  if (typeof blockNumber !== 'number' || !Number.isInteger(blockNumber) || blockNumber <= 0) {
-    throw new HiveBroadcastError(
-      'BROADCAST_REJECTED',
-      'Confirmed Hive transaction lookup did not include usable block metadata.',
-      'permanent',
-      { reason: 'missing_or_invalid_block_number' },
-    );
-  }
-
-  return blockNumber;
-}
-
-function readBlockHeaderTimestamp(
-  blockHeader: { timestamp?: string } | null,
-  blockNumber: number,
-): string {
-  const timestamp = blockHeader?.timestamp;
-  const normalizedTimestamp =
-    typeof timestamp === 'string' && !/[zZ]|[+-]\d\d:?\d\d$/.test(timestamp)
-      ? `${timestamp}Z`
-      : timestamp;
-  const parsed = typeof normalizedTimestamp === 'string' ? new Date(normalizedTimestamp) : null;
-
-  if (!parsed || Number.isNaN(parsed.getTime())) {
-    throw new HiveBroadcastError(
-      'BROADCAST_REJECTED',
-      'Confirmed Hive block header did not include a valid timestamp.',
-      'permanent',
-      {
-        blockNumber,
-        reason: 'missing_or_invalid_block_timestamp',
-      },
-    );
-  }
-
-  return parsed.toISOString();
+  return typeof blockNumber === 'number' && Number.isInteger(blockNumber) ? blockNumber : undefined;
 }
 
 function normalizeCondenserOperation(operationValue: unknown): unknown {

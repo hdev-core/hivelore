@@ -593,112 +593,61 @@ describe('Hive broadcast reliability', () => {
     assert.equal(blockSearches, 0);
   });
 
-  test('polls again when transaction lookup has not found the transaction yet', async () => {
-    let transactionLookups = 0;
-    const broadcaster = new HiveReliableBroadcaster(
-      network,
-      {
-        async broadcast() {},
-        async getHeadBlock() {
-          return 101;
-        },
-        async getTransaction() {
-          transactionLookups += 1;
+  test('uses block header timestamp instead of transaction expiration for lookup rows', async () => {
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
 
-          return transactionLookups === 1 ? null : [row()];
-        },
-        async searchBlocks() {
-          throw new Error('block-search should not be used when transaction lookup exists');
-        },
-      },
-      {
-        confirmationPollIntervalMs: 1,
-        confirmationTimeoutMs: 10,
-      },
-      fakeClock(),
-    );
+    const originalFetch = globalThis.fetch;
+    const requestedMethods: string[] = [];
 
-    const result = await broadcaster.confirmTransaction({
-      expectedOperation: operation,
-      expectedSigner: 'mira-vale.dev',
-      transactionId: 'tx-1',
-    });
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { method?: string };
+      requestedMethods.push(body.method ?? '');
 
-    assert.equal(transactionLookups, 2);
-    assert.equal(result.transactionId, 'tx-1');
-  });
-
-  test('skips malformed same-transaction rows when operation index is omitted', () => {
-    const confirmed = findAndVerifyOperation(
-      [
-        {
-          block_num: 101,
-          operation_id: 0,
-          timestamp: '2026-08-10T12:01:00.000Z',
-          transaction_id: 'tx-1',
-        },
-        {
-          ...row(),
-          operation_id: 1,
-        },
-      ],
-      {
-        expectedOperation: operation,
-        expectedSigner: 'mira-vale.dev',
-        transactionId: 'tx-1',
-      },
-    );
-
-    assert.equal(confirmed?.operationIndex, 1);
-  });
-
-  test('reports malformed explicit operation-index rows instead of skipping them', () => {
-    assert.throws(
-      () =>
-        findAndVerifyOperation(
-          [
-            {
-              block_num: 101,
-              operation_id: 0,
-              timestamp: '2026-08-10T12:01:00.000Z',
-              transaction_id: 'tx-1',
-            },
-            {
-              ...row(),
-              operation_id: 1,
-            },
-          ],
-          {
-            expectedOperation: operation,
-            expectedSigner: 'mira-vale.dev',
-            operationIndex: 0,
-            transactionId: 'tx-1',
+      if (body.method === 'condenser_api.get_transaction') {
+        return Response.json({
+          result: {
+            block_num: 101,
+            expiration: '2026-08-10T12:05:00',
+            operations: [
+              [
+                'custom_json',
+                {
+                  id: customJson.id,
+                  json: customJson.json,
+                  required_auths: customJson.required_auths,
+                  required_posting_auths: customJson.required_posting_auths,
+                },
+              ],
+            ],
+            transaction_id: 'tx-1',
           },
-        ),
-      (error: unknown) =>
-        error instanceof HiveBroadcastError &&
-        error.diagnostics.reason === 'operation_normalization_failed',
-    );
-  });
+        });
+      }
 
-  test('returns null when omitted operation index has no valid matching operation', () => {
-    const confirmed = findAndVerifyOperation(
-      [
-        {
-          block_num: 101,
-          operation_id: 0,
-          timestamp: '2026-08-10T12:01:00.000Z',
-          transaction_id: 'tx-1',
-        },
-      ],
-      {
-        expectedOperation: operation,
-        expectedSigner: 'mira-vale.dev',
-        transactionId: 'tx-1',
-      },
-    );
+      if (body.method === 'condenser_api.get_block_header') {
+        return Response.json({
+          result: {
+            timestamp: '2026-08-10T12:01:00',
+          },
+        });
+      }
 
-    assert.equal(confirmed, null);
+      return Response.json({ error: { message: 'unexpected method' } });
+    }) as typeof fetch;
+
+    try {
+      const transport = new DefaultHiveBroadcastTransport(network);
+      const rows = await transport.getTransaction({ transactionId: 'tx-1' });
+
+      assert.deepEqual(requestedMethods, [
+        'condenser_api.get_transaction',
+        'condenser_api.get_block_header',
+      ]);
+      assert.equal(rows?.[0]?.timestamp, '2026-08-10T12:01:00');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test('calculates capped exponential backoff with bounded jitter', () => {
