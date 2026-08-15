@@ -6,6 +6,7 @@ import { buildHiveLoreCustomJsonOperation } from './operations.js';
 import {
   classifyHiveBroadcastError,
   delayForAttempt,
+  DefaultHiveBroadcastTransport,
   findAndVerifyOperation,
   HiveBroadcastError,
   HiveNodePool,
@@ -460,6 +461,63 @@ describe('Hive broadcast reliability', () => {
     assert.equal(result.transactionId, 'tx-1');
     assert.equal(transactionLookups, 1);
     assert.equal(blockSearches, 0);
+  });
+
+  test('uses block header timestamp instead of transaction expiration for lookup rows', async () => {
+    const customJson = operation.custom_json_operation;
+    assert.ok(customJson);
+
+    const originalFetch = globalThis.fetch;
+    const requestedMethods: string[] = [];
+
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { method?: string };
+      requestedMethods.push(body.method ?? '');
+
+      if (body.method === 'condenser_api.get_transaction') {
+        return Response.json({
+          result: {
+            block_num: 101,
+            expiration: '2026-08-10T12:05:00',
+            operations: [
+              [
+                'custom_json',
+                {
+                  id: customJson.id,
+                  json: customJson.json,
+                  required_auths: customJson.required_auths,
+                  required_posting_auths: customJson.required_posting_auths,
+                },
+              ],
+            ],
+            transaction_id: 'tx-1',
+          },
+        });
+      }
+
+      if (body.method === 'condenser_api.get_block_header') {
+        return Response.json({
+          result: {
+            timestamp: '2026-08-10T12:01:00',
+          },
+        });
+      }
+
+      return Response.json({ error: { message: 'unexpected method' } });
+    }) as typeof fetch;
+
+    try {
+      const transport = new DefaultHiveBroadcastTransport(network);
+      const rows = await transport.getTransaction({ transactionId: 'tx-1' });
+
+      assert.deepEqual(requestedMethods, [
+        'condenser_api.get_transaction',
+        'condenser_api.get_block_header',
+      ]);
+      assert.equal(rows?.[0]?.timestamp, '2026-08-10T12:01:00');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test('calculates capped exponential backoff with bounded jitter', () => {

@@ -186,7 +186,62 @@ export class DefaultHiveBroadcastTransport implements HiveBroadcastTransport {
       throw new Error(message);
     }
 
-    return transactionLookupToRows(body.result, params.transactionId);
+    const blockchainTimestamp = await this.getBlockTimestamp({
+      nodeUrl,
+      result: body.result,
+      signal: params.signal,
+    });
+
+    return transactionLookupToRows(body.result, params.transactionId, blockchainTimestamp);
+  }
+
+  private async getBlockTimestamp(input: {
+    nodeUrl: string;
+    result: unknown;
+    signal?: AbortSignal | undefined;
+  }): Promise<string | undefined> {
+    const blockNumber = getTransactionBlockNumber(input.result);
+
+    if (blockNumber === undefined) {
+      return undefined;
+    }
+
+    const response = await fetch(input.nodeUrl, {
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'condenser_api.get_block_header',
+        params: [blockNumber],
+      }),
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+      signal: createTimeoutSignal(DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs, input.signal),
+    });
+
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(`Hive block header lookup failed: ${response.status} ${response.statusText}`),
+        { status: response.status },
+      );
+    }
+
+    const body = (await response.json()) as {
+      error?: { message?: string };
+      result?: { timestamp?: unknown };
+    };
+
+    if (body.error) {
+      throw new Error(body.error.message ?? 'Hive block header lookup failed.');
+    }
+
+    if (typeof body.result?.timestamp !== 'string' || !body.result.timestamp.trim()) {
+      throw new Error('Hive block header response did not include a timestamp.');
+    }
+
+    return body.result.timestamp;
   }
 }
 
@@ -736,7 +791,11 @@ function normalizeSearchPage(
   return Array.isArray(page) ? { operations: page } : page;
 }
 
-function transactionLookupToRows(result: unknown, transactionId: string): HafOperationRow[] | null {
+function transactionLookupToRows(
+  result: unknown,
+  transactionId: string,
+  blockchainTimestamp?: string | undefined,
+): HafOperationRow[] | null {
   if (!result || typeof result !== 'object') {
     return null;
   }
@@ -745,10 +804,7 @@ function transactionLookupToRows(result: unknown, transactionId: string): HafOpe
     block_num?: number | string;
     blockNumber?: number | string;
     block?: number | string;
-    expiration?: string;
     operations?: unknown;
-    timestamp?: string;
-    block_time?: string;
     transaction_id?: string;
     transactionId?: string;
     trx_id?: string;
@@ -760,7 +816,6 @@ function transactionLookupToRows(result: unknown, transactionId: string): HafOpe
 
   const resolvedTransactionId =
     transaction.transaction_id ?? transaction.transactionId ?? transaction.trx_id ?? transactionId;
-  const timestamp = transaction.timestamp ?? transaction.block_time ?? transaction.expiration;
 
   return transaction.operations.map((operationValue, index) => {
     const blockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
@@ -769,10 +824,26 @@ function transactionLookupToRows(result: unknown, transactionId: string): HafOpe
       ...(blockNumber === undefined ? {} : { block_num: blockNumber }),
       operation: normalizeCondenserOperation(operationValue),
       operation_id: index,
-      ...(timestamp === undefined ? {} : { timestamp }),
+      ...(blockchainTimestamp === undefined ? {} : { timestamp: blockchainTimestamp }),
       transaction_id: resolvedTransactionId,
     };
   });
+}
+
+function getTransactionBlockNumber(result: unknown): number | undefined {
+  if (!result || typeof result !== 'object') {
+    return undefined;
+  }
+
+  const transaction = result as {
+    block_num?: number | string;
+    blockNumber?: number | string;
+    block?: number | string;
+  };
+  const rawBlockNumber = transaction.block_num ?? transaction.blockNumber ?? transaction.block;
+  const blockNumber = typeof rawBlockNumber === 'string' ? Number(rawBlockNumber) : rawBlockNumber;
+
+  return typeof blockNumber === 'number' && Number.isInteger(blockNumber) ? blockNumber : undefined;
 }
 
 function normalizeCondenserOperation(operationValue: unknown): unknown {
