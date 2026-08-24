@@ -580,11 +580,7 @@ export function classifyHiveBroadcastError(error: unknown): HiveBroadcastError {
     );
   }
 
-  if (
-    lower.includes('block metadata') ||
-    lower.includes('block header') ||
-    lower.includes('transaction id mismatch')
-  ) {
+  if (lower.includes('block metadata') || lower.includes('transaction id mismatch')) {
     return new HiveBroadcastError(
       'BROADCAST_REJECTED',
       'Hive confirmation failed closed on invalid read-back metadata.',

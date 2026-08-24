@@ -661,6 +661,18 @@ describe('Hive broadcast reliability', () => {
   test('classifies transient, permanent, and expired provider failures', () => {
     assert.equal(classifyHiveBroadcastError(new Error('HTTP timeout')).failureClass, 'transient');
     assert.equal(
+      classifyHiveBroadcastError(
+        Object.assign(new Error('Hive block header lookup failed: 503 Service Unavailable'), {
+          status: 503,
+        }),
+      ).failureClass,
+      'transient',
+    );
+    assert.equal(
+      classifyHiveBroadcastError(new Error('Hive block header lookup timed out')).failureClass,
+      'transient',
+    );
+    assert.equal(
       classifyHiveBroadcastError(new Error('insufficient authority')).failureClass,
       'permanent',
     );

@@ -720,9 +720,10 @@ Mainnet smoke test:
 
 ```json
 {
-  "type": "hivelore_mainnet_smoke",
+  "app": "hivelore",
+  "type": "mainnet_smoke",
   "version": 1,
-  "purpose": "broadcast-readback verification"
+  "purpose": "broadcast_readback_verification"
 }
 ```
 
