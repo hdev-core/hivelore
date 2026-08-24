@@ -6,6 +6,7 @@ import {
   ProposalType,
   WorldAuditAction,
 } from '../generated/prisma/enums.js';
+import { prepareSubmittedProposalVotingFields } from './canon-voting.js';
 
 const STRUCTURED_DOCUMENT_MAX_BYTES = 100 * 1024;
 
@@ -24,6 +25,7 @@ export type ContributionDatabase = Pick<
   | 'contributionDraft'
   | 'loreEntry'
   | 'proposal'
+  | 'refreshSession'
   | 'world'
   | 'worldAuditLog'
   | 'worldMembership'
@@ -294,34 +296,36 @@ export async function createContribution(
   await assertWorldExists(database, input.worldId);
   await assertTargetLoreEntry(database, input.worldId, input.targetLoreEntryId);
 
-  const contribution = await database.$transaction(async (transaction) => {
-    const created = await transaction.contributionDraft.create({
-      data: {
-        authorId: input.authorId,
-        content,
-        kind: input.kind,
-        summary,
-        targetLoreEntryId: input.targetLoreEntryId || null,
-        title,
+  const contribution = await database.$transaction(
+    async (transaction: Prisma.TransactionClient) => {
+      const created = await transaction.contributionDraft.create({
+        data: {
+          authorId: input.authorId,
+          content,
+          kind: input.kind,
+          summary,
+          targetLoreEntryId: input.targetLoreEntryId || null,
+          title,
+          worldId: input.worldId,
+        },
+        include: contributionInclude,
+      });
+
+      await createContributionAuditLog(transaction, {
+        action: WorldAuditAction.CONTRIBUTION_CREATED,
+        actorId: input.authorId,
+        metadata: {
+          kind: input.kind,
+          targetLoreEntryId: input.targetLoreEntryId ?? null,
+        },
+        targetId: created.id,
+        targetType: 'CONTRIBUTION_DRAFT',
         worldId: input.worldId,
-      },
-      include: contributionInclude,
-    });
+      });
 
-    await createContributionAuditLog(transaction, {
-      action: WorldAuditAction.CONTRIBUTION_CREATED,
-      actorId: input.authorId,
-      metadata: {
-        kind: input.kind,
-        targetLoreEntryId: input.targetLoreEntryId ?? null,
-      },
-      targetId: created.id,
-      targetType: 'CONTRIBUTION_DRAFT',
-      worldId: input.worldId,
-    });
-
-    return created;
-  });
+      return created;
+    },
+  );
 
   return serializeContribution(contribution);
 }
@@ -484,70 +488,72 @@ export async function updateContribution(
     data.updatedAt = new Date();
   }
 
-  const contribution = await database.$transaction(async (transaction) => {
-    const updated = await transaction.contributionDraft.updateMany({
-      data,
-      where: {
-        authorId: input.authorId,
-        id: input.contributionId,
-        status: ContributionStatus.DRAFT,
-        worldId: input.worldId,
-      },
-    });
-
-    if (updated.count !== 1) {
-      await resolveMissingOrLockedContribution(transaction, {
-        ...input,
-        lockedMessage: 'Submitted contributions cannot be edited.',
-      });
-    }
-
-    if (targetLoreEntryId !== undefined) {
-      await transaction.contributionDraft.update({
-        data: {
-          targetLoreEntry:
-            targetLoreEntryId === null
-              ? {
-                  disconnect: true,
-                }
-              : {
-                  connect: {
-                    id: targetLoreEntryId,
-                  },
-                },
-        },
+  const contribution = await database.$transaction(
+    async (transaction: Prisma.TransactionClient) => {
+      const updated = await transaction.contributionDraft.updateMany({
+        data,
         where: {
+          authorId: input.authorId,
           id: input.contributionId,
+          status: ContributionStatus.DRAFT,
+          worldId: input.worldId,
         },
       });
-    }
 
-    const current = await transaction.contributionDraft.findFirst({
-      include: contributionInclude,
-      where: {
-        authorId: input.authorId,
-        id: input.contributionId,
+      if (updated.count !== 1) {
+        await resolveMissingOrLockedContribution(transaction, {
+          ...input,
+          lockedMessage: 'Submitted contributions cannot be edited.',
+        });
+      }
+
+      if (targetLoreEntryId !== undefined) {
+        await transaction.contributionDraft.update({
+          data: {
+            targetLoreEntry:
+              targetLoreEntryId === null
+                ? {
+                    disconnect: true,
+                  }
+                : {
+                    connect: {
+                      id: targetLoreEntryId,
+                    },
+                  },
+          },
+          where: {
+            id: input.contributionId,
+          },
+        });
+      }
+
+      const current = await transaction.contributionDraft.findFirst({
+        include: contributionInclude,
+        where: {
+          authorId: input.authorId,
+          id: input.contributionId,
+          worldId: input.worldId,
+        },
+      });
+
+      if (!current) {
+        throw new ContributionError(404, 'Contribution not found.');
+      }
+
+      await createContributionAuditLog(transaction, {
+        action: WorldAuditAction.CONTRIBUTION_UPDATED,
+        actorId: input.authorId,
+        metadata: {
+          changedFields: changedFields.sort(),
+        },
+        targetId: current.id,
+        targetType: 'CONTRIBUTION_DRAFT',
         worldId: input.worldId,
-      },
-    });
+      });
 
-    if (!current) {
-      throw new ContributionError(404, 'Contribution not found.');
-    }
-
-    await createContributionAuditLog(transaction, {
-      action: WorldAuditAction.CONTRIBUTION_UPDATED,
-      actorId: input.authorId,
-      metadata: {
-        changedFields: changedFields.sort(),
-      },
-      targetId: current.id,
-      targetType: 'CONTRIBUTION_DRAFT',
-      worldId: input.worldId,
-    });
-
-    return current;
-  });
+      return current;
+    },
+  );
 
   return serializeContribution(contribution);
 }
@@ -560,7 +566,7 @@ export async function deleteContribution(
     authorId: string;
   },
 ) {
-  await database.$transaction(async (transaction) => {
+  await database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const existing = await transaction.contributionDraft.findFirst({
       where: {
         authorId: input.authorId,
@@ -615,7 +621,7 @@ export async function submitContribution(
     authorId: string;
   },
 ) {
-  const result = await database.$transaction(async (transaction) => {
+  const result = await database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const existing = await transaction.contributionDraft.findFirst({
       include: contributionInclude,
       where: {
@@ -652,6 +658,21 @@ export async function submitContribution(
     await assertTargetLoreEntry(transaction, input.worldId, existing.targetLoreEntryId);
 
     const submittedAt = new Date();
+    const votingFields = prepareSubmittedProposalVotingFields({
+      proposedContent: structuredContent,
+      submittedAt,
+    });
+    const currentBible = await transaction.worldBibleVersion.findFirst({
+      orderBy: {
+        versionNumber: 'desc',
+      },
+      select: {
+        id: true,
+      },
+      where: {
+        worldId: input.worldId,
+      },
+    });
     const transition = await transaction.contributionDraft.updateMany({
       data: {
         status: ContributionStatus.SUBMITTED,
@@ -691,17 +712,21 @@ export async function submitContribution(
     const proposal = await transaction.proposal.create({
       data: {
         authorId: input.authorId,
+        baseCanonVersionId: currentBible?.id ?? null,
         contributionKind: existing.kind,
+        contentHash: votingFields.contentHash,
         proposedContent: structuredContent,
         proposalType: proposalTypeForContribution(
           existing.kind,
           Boolean(existing.targetLoreEntryId),
         ),
-        status: ProposalStatus.SUBMITTED,
+        status: ProposalStatus.VOTING,
         submittedAt,
         summary: existing.summary ?? '',
         targetLoreEntryId: existing.targetLoreEntryId,
         title: existing.title,
+        votingEndsAt: votingFields.votingEndsAt,
+        votingStartedAt: votingFields.votingStartedAt,
         worldId: input.worldId,
       },
     });

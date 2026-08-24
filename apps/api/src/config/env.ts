@@ -1,6 +1,8 @@
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
 
+import { DEFAULT_HIVE_RETRY_CONFIG } from '../lib/hive/network-config.js';
+
 loadDotenv();
 
 const booleanEnv = (defaultValue: boolean) =>
@@ -32,7 +34,70 @@ const envSchema = z.object({
   AUTH_CHALLENGE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   AUTH_COOKIE_DOMAIN: z.string().optional(),
   AUTH_COOKIE_SECURE: optionalBooleanEnv,
+  PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE: z.coerce.number().int().positive().default(10_000),
+  PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
   HIVE_RPC_URL: z.string().url().default('https://api.hive.blog'),
+  HIVE_MAINNET_CHAIN_ID: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .default('beeab0de00000000000000000000000000000000000000000000000000000000'),
+  HIVE_MAINNET_RPC_NODES: z.string().min(1).default('https://api.hive.blog'),
+  HIVE_MAINNET_HAF_URL: z.string().url().default('https://api.hive.blog/hafbe-api'),
+  HIVE_BROADCAST_MAX_ATTEMPTS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.maxAttempts),
+  HIVE_BROADCAST_INITIAL_DELAY_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.initialDelayMs),
+  HIVE_BROADCAST_MAX_DELAY_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.maxDelayMs),
+  HIVE_BROADCAST_BACKOFF_MULTIPLIER: z.coerce
+    .number()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.backoffMultiplier),
+  HIVE_BROADCAST_JITTER_RATIO: z.coerce
+    .number()
+    .min(0)
+    .max(1)
+    .default(DEFAULT_HIVE_RETRY_CONFIG.jitterRatio),
+  HIVE_BROADCAST_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.requestTimeoutMs),
+  HIVE_BROADCAST_TOTAL_DEADLINE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.totalDeadlineMs),
+  HIVE_CONFIRMATION_POLL_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.confirmationPollIntervalMs),
+  HIVE_CONFIRMATION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.confirmationTimeoutMs),
+  HIVE_NODE_MAX_CONSECUTIVE_FAILURES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.maxConsecutiveNodeFailures),
+  HIVE_NODE_COOLDOWN_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_HIVE_RETRY_CONFIG.nodeCooldownMs),
   HIVE_AUTH_AUDIENCE: z.string().min(1).default('hivelore-local-api'),
   HAF_API_URL: z.string().url().default('https://api.hive.blog/hafbe-api'),
   HIVELORE_APP_ID: z.string().min(1).default('hivelore/0.1.0'),

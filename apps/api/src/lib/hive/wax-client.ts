@@ -42,6 +42,7 @@ export interface HiveWaxClientOptions {
   apiEndpoint?: string;
   appName?: string;
   apiTimeoutMs?: number;
+  chainId?: string;
   createChain?: (options: Partial<IWaxOptionsChain>) => Promise<WaxChainLike>;
   createFoundation?: (options: { chainId: string }) => Promise<WaxFoundationLike>;
 }
@@ -55,7 +56,7 @@ export class HiveWaxClient {
 
   constructor(options: HiveWaxClientOptions = {}) {
     this.chainOptions = {
-      chainId: HIVE_MAINNET_CHAIN_ID,
+      chainId: options.chainId ?? HIVE_MAINNET_CHAIN_ID,
       apiEndpoint: options.apiEndpoint ?? DEFAULT_HIVE_RPC_URL,
       waxApiCaller: options.appName ?? DEFAULT_HIVELORE_APP_ID,
       apiTimeout: options.apiTimeoutMs ?? 10_000,

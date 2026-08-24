@@ -44,6 +44,13 @@ export interface HiveLoreCustomJsonPayload {
   payload: Record<string, unknown>;
 }
 
+export interface HiveLoreSmokePayload {
+  app: 'hivelore';
+  type: 'mainnet_smoke';
+  version: 1;
+  purpose: 'broadcast_readback_verification';
+}
+
 export interface BuiltHiveTransaction {
   transaction: ApiTransaction;
   binaryHex: string;
@@ -66,11 +73,13 @@ export interface HafOperationRow {
   block_num?: number | string;
   blockNumber?: number | string;
   block?: number | string;
+  transaction_num?: number | string;
   transaction_id?: string;
   transactionId?: string;
   trx_id?: string;
   operation_id?: number | string;
   operationIndex?: number | string;
+  op_in_trx?: number | string;
   op_pos?: number | string;
   timestamp?: string;
   created_at?: string;
@@ -103,5 +112,5 @@ export interface HiveOperationVerification {
   signer?: string;
   entityType?: HiveLoreEntityType;
   entityId?: string;
-  payload?: HiveLoreMetadata | HiveLoreCustomJsonPayload;
+  payload?: HiveLoreMetadata | HiveLoreCustomJsonPayload | HiveLoreSmokePayload;
 }

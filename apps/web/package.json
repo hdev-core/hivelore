@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "lint": "eslint .",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "next build",
     "clean": "node -e \"fs.rmSync('.next', { recursive: true, force: true }); fs.rmSync('dist', { recursive: true, force: true })\""

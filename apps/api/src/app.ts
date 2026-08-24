@@ -9,6 +9,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerContributionRoutes } from './routes/contributions.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerLoreRoutes } from './routes/lore.js';
+import { registerProposalRoutes } from './routes/proposals.js';
 import { registerWorldRoutes } from './routes/worlds.js';
 
 export async function buildApp() {
@@ -39,6 +40,9 @@ export async function buildApp() {
   await app.register(rateLimit, {
     global: false,
     skipOnError: false,
+    // Route scope already isolates /auth/refresh from /auth/challenge inside this shared
+    // namespace. A separate namespace is only warranted for independent cleanup, retention,
+    // or monitoring.
     store: createPrismaRateLimitStore(prisma),
   });
 
@@ -47,6 +51,7 @@ export async function buildApp() {
   await registerWorldRoutes(app);
   await registerLoreRoutes(app);
   await registerContributionRoutes(app);
+  await registerProposalRoutes(app);
 
   return app;
 }

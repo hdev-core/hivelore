@@ -12,13 +12,28 @@ permissions:
 env:
   CI: true
   NEXT_PUBLIC_API_URL: http://localhost:3001
-  DATABASE_URL: postgresql://USER:PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=true
-  DIRECT_URL: postgresql://USER:PASSWORD@DIRECT_HOST:5432/postgres
+  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+  DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
 
 jobs:
   quality:
     name: Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -33,9 +48,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check formatting
-        run: npm run format:check
-
       - name: Format Prisma schema
         run: npm run db:format
 
@@ -45,11 +57,37 @@ jobs:
       - name: Generate Prisma Client
         run: npm run db:generate
 
-      - name: Lint
-        run: npm run lint
+      - name: Check fresh PostgreSQL migrations
+        run: npm run db:migrate:check:fresh
+        env:
+          TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+      - name: Check PostgreSQL migration upgrade from develop
+        run: |
+          git fetch origin develop --depth=1
+          mkdir -p /tmp/hivelore-develop
+          git archive origin/develop apps/api/prisma | tar -x -C /tmp/hivelore-develop
+          npm run db:migrate:check:upgrade
+        env:
+          TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          TEST_DATABASE_BASE_PRISMA_SCHEMA: /tmp/hivelore-develop/apps/api/prisma/schema.prisma
 
       - name: Type-check
         run: npm run typecheck
+
+      - name: Test
+        run: npm test
+        env:
+          NODE_ENV: test
+          AUTH_JWT_SECRET: test-only-jwt-secret-with-enough-entropy
+          AUTH_REFRESH_SECRET: test-only-refresh-secret-with-enough-entropy
+          TEST_DATABASE_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
 
       - name: Build
         run: npm run build

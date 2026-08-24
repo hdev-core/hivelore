@@ -41,7 +41,7 @@ export function normalizeHafOperation(row: HafOperationRow): NormalizedHiveOpera
       'transaction id',
     ),
     operationIndex: requiredNumeric(
-      row.operation_id ?? row.operationIndex ?? row.op_pos,
+      row.operation_id ?? row.operationIndex ?? row.op_in_trx ?? row.op_pos,
       'operation index',
     ),
     blockchainTimestamp: new Date(requiredString(row.timestamp ?? row.created_at, 'timestamp')),
@@ -101,6 +101,22 @@ function unwrapHafOperation(row: HafOperationRow): HiveLoreOperation {
     if (typedOperation.type === 'custom_json_operation') {
       return {
         custom_json_operation: typedOperation.value as HiveLoreOperation['custom_json_operation'],
+      };
+    }
+  }
+
+  if (Array.isArray(source) && source.length >= 2) {
+    const [type, value] = source as [unknown, unknown];
+
+    if (type === 'comment') {
+      return {
+        comment_operation: value as HiveLoreOperation['comment_operation'],
+      };
+    }
+
+    if (type === 'custom_json') {
+      return {
+        custom_json_operation: value as HiveLoreOperation['custom_json_operation'],
       };
     }
   }

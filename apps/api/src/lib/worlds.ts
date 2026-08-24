@@ -5,6 +5,7 @@ import {
   WorldAuditAction,
   WorldRole,
 } from '../generated/prisma/enums.js';
+import { mapWorldSlugConflict } from './prisma-conflicts.js';
 
 export type WorldSeedInput = {
   premise: string;
@@ -32,6 +33,7 @@ export type CreateWorldInput = {
 
 export type UpdateWorldInput = {
   worldId: string;
+  actorId: string;
   title?: string | undefined;
   description?: string | undefined;
   seed?: Partial<WorldSeedInput> | undefined;
@@ -43,12 +45,22 @@ export type WorldDatabase = Pick<
   | '$transaction'
   | 'loreEntry'
   | 'proposal'
+  | 'refreshSession'
   | 'world'
   | 'worldAuditLog'
   | 'worldBibleVersion'
   | 'worldMembership'
   | 'worldSeed'
 >;
+
+export class WorldError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 const worldInclude = {
   bibleVersions: {
@@ -69,8 +81,41 @@ const worldInclude = {
   seed: true,
 } as const;
 
+const worldListInclude = {
+  bibleVersions: {
+    orderBy: {
+      versionNumber: 'desc',
+    },
+    select: {
+      changeSummary: true,
+      createdAt: true,
+      creatorId: true,
+      hiveReferenceId: true,
+      id: true,
+      publishedAt: true,
+      updatedAt: true,
+      versionNumber: true,
+    },
+    take: 1,
+  },
+  founder: {
+    select: {
+      avatarUrl: true,
+      displayName: true,
+      hiveUsername: true,
+      id: true,
+      normalizedHiveUsername: true,
+    },
+  },
+  seed: true,
+} as const;
+
 type WorldWithRelations = Prisma.WorldGetPayload<{
   include: typeof worldInclude;
+}>;
+
+type WorldListItemWithRelations = Prisma.WorldGetPayload<{
+  include: typeof worldListInclude;
 }>;
 
 export function createSlug(title: string) {
@@ -113,14 +158,19 @@ function serializeSeed(seed: NonNullable<WorldWithRelations['seed']>) {
   };
 }
 
-function serializeBibleVersion(version: WorldWithRelations['bibleVersions'][number] | null) {
+function serializeBibleVersion(
+  version:
+    | WorldWithRelations['bibleVersions'][number]
+    | WorldListItemWithRelations['bibleVersions'][number]
+    | null,
+) {
   if (!version) {
     return null;
   }
 
   return {
     changeSummary: version.changeSummary,
-    content: version.content,
+    ...('content' in version ? { content: version.content } : {}),
     createdAt: version.createdAt.toISOString(),
     creatorId: version.creatorId,
     hiveReferenceId: version.hiveReferenceId,
@@ -148,6 +198,21 @@ export function serializeWorld(world: WorldWithRelations) {
 
 export type SerializedWorld = ReturnType<typeof serializeWorld>;
 
+export function serializeWorldListItem(world: WorldListItemWithRelations) {
+  return {
+    createdAt: world.createdAt.toISOString(),
+    currentBibleVersion: serializeBibleVersion(world.bibleVersions[0] ?? null),
+    description: world.description,
+    founder: world.founder,
+    founderId: world.founderId,
+    id: world.id,
+    seed: world.seed ? serializeSeed(world.seed) : null,
+    slug: world.slug,
+    title: world.title,
+    updatedAt: world.updatedAt.toISOString(),
+  };
+}
+
 async function generateUniqueWorldSlug(database: Pick<WorldDatabase, 'world'>, title: string) {
   const baseSlug = createSlug(title);
   let slug = baseSlug;
@@ -169,78 +234,88 @@ async function generateUniqueWorldSlug(database: Pick<WorldDatabase, 'world'>, t
     slug = `${baseSlug}-${suffix}`;
   }
 
-  throw new Error('Unable to create a unique world slug.');
+  throw new WorldError(409, 'Unable to create a unique world slug.');
 }
 
 export async function createWorld(database: WorldDatabase, input: CreateWorldInput) {
-  const slug = await generateUniqueWorldSlug(database, input.title);
   const seed = normalizeSeedInput(input.seed);
 
-  const world = await database.$transaction(async (transaction) => {
-    const createdWorld = await transaction.world.create({
-      data: {
-        description: input.description.trim(),
-        founderId: input.creatorId,
-        slug,
-        title: input.title.trim(),
-      },
-    });
-
-    await transaction.worldSeed.create({
-      data: {
-        firstCharacters: seed.firstCharacters,
-        firstFactions: seed.firstFactions,
-        firstHistoricalEvent: seed.firstHistoricalEvent,
-        genre: seed.genre,
-        mainConflict: seed.mainConflict,
-        premise: seed.premise,
-        startingLocation: seed.startingLocation,
-        tone: seed.tone,
-        worldId: createdWorld.id,
-      },
-    });
-
-    await transaction.worldBibleVersion.create({
-      data: {
-        changeSummary: input.bible.changeSummary?.trim() || 'Initial world bible.',
-        content: input.bible.content,
-        creatorId: input.creatorId,
-        versionNumber: 1,
-        worldId: createdWorld.id,
-      },
-    });
-
-    const membership = await transaction.worldMembership.create({
-      data: {
-        grantedById: input.creatorId,
-        role: WorldRole.FOUNDER,
-        userId: input.creatorId,
-        worldId: createdWorld.id,
-      },
-    });
-
-    await transaction.worldAuditLog.create({
-      data: {
-        action: WorldAuditAction.ROLE_ASSIGNED,
-        actorId: input.creatorId,
-        metadata: {
-          role: WorldRole.FOUNDER,
+  try {
+    const world = await database.$transaction(async (transaction: Prisma.TransactionClient) => {
+      const slug = await generateUniqueWorldSlug(transaction, input.title);
+      const createdWorld = await transaction.world.create({
+        data: {
+          description: input.description.trim(),
+          founderId: input.creatorId,
+          slug,
+          title: input.title.trim(),
         },
-        targetId: membership.id,
-        targetType: 'WORLD_MEMBERSHIP',
-        worldId: createdWorld.id,
-      },
+      });
+
+      await transaction.worldSeed.create({
+        data: {
+          firstCharacters: seed.firstCharacters,
+          firstFactions: seed.firstFactions,
+          firstHistoricalEvent: seed.firstHistoricalEvent,
+          genre: seed.genre,
+          mainConflict: seed.mainConflict,
+          premise: seed.premise,
+          startingLocation: seed.startingLocation,
+          tone: seed.tone,
+          worldId: createdWorld.id,
+        },
+      });
+
+      await transaction.worldBibleVersion.create({
+        data: {
+          changeSummary: input.bible.changeSummary?.trim() || 'Initial world bible.',
+          content: input.bible.content,
+          creatorId: input.creatorId,
+          versionNumber: 1,
+          worldId: createdWorld.id,
+        },
+      });
+
+      const membership = await transaction.worldMembership.create({
+        data: {
+          grantedById: input.creatorId,
+          role: WorldRole.FOUNDER,
+          userId: input.creatorId,
+          worldId: createdWorld.id,
+        },
+      });
+
+      await transaction.worldAuditLog.create({
+        data: {
+          action: WorldAuditAction.ROLE_ASSIGNED,
+          actorId: input.creatorId,
+          metadata: {
+            role: WorldRole.FOUNDER,
+          },
+          targetId: membership.id,
+          targetType: 'WORLD_MEMBERSHIP',
+          worldId: createdWorld.id,
+        },
+      });
+
+      return transaction.world.findUniqueOrThrow({
+        include: worldInclude,
+        where: {
+          id: createdWorld.id,
+        },
+      });
     });
 
-    return transaction.world.findUniqueOrThrow({
-      include: worldInclude,
-      where: {
-        id: createdWorld.id,
-      },
-    });
-  });
+    return serializeWorld(world);
+  } catch (error) {
+    const conflict = mapWorldSlugConflict(error);
 
-  return serializeWorld(world);
+    if (conflict) {
+      throw new WorldError(conflict.statusCode, conflict.error);
+    }
+
+    throw error;
+  }
 }
 
 export async function listWorlds(
@@ -297,7 +372,7 @@ export async function listWorlds(
 
   const [worlds, total] = await Promise.all([
     database.world.findMany({
-      include: worldInclude,
+      include: worldListInclude,
       orderBy: [
         {
           createdAt: 'desc',
@@ -321,7 +396,7 @@ export async function listWorlds(
       pageSize,
       total,
     },
-    worlds: worlds.map(serializeWorld),
+    worlds: worlds.map(serializeWorldListItem),
   };
 }
 
@@ -384,7 +459,7 @@ export async function getWorldHub(database: WorldDatabase, worldId: string) {
   ]);
 
   return {
-    latestLoreEntries: latestLoreEntries.map((entry) => ({
+    latestLoreEntries: latestLoreEntries.map((entry: { updatedAt: Date }) => ({
       ...entry,
       updatedAt: entry.updatedAt.toISOString(),
     })),
@@ -397,7 +472,7 @@ export async function getWorldHub(database: WorldDatabase, worldId: string) {
 }
 
 export async function updateWorld(database: WorldDatabase, input: UpdateWorldInput) {
-  const world = await database.$transaction(async (transaction) => {
+  const world = await database.$transaction(async (transaction: Prisma.TransactionClient) => {
     const current = await transaction.world.findUnique({
       include: {
         bibleVersions: {
@@ -414,7 +489,7 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
     });
 
     if (!current) {
-      return null;
+      throw new WorldError(404, 'World not found.');
     }
 
     if (input.title || input.description) {
@@ -433,7 +508,7 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
       const currentSeed = current.seed;
 
       if (!currentSeed) {
-        throw new Error('World seed is missing.');
+        throw new WorldError(409, 'World seed is missing.');
       }
 
       const normalizedSeed = normalizeSeedInput({
@@ -441,14 +516,14 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
           input.seed.firstCharacters ??
           (Array.isArray(currentSeed.firstCharacters)
             ? currentSeed.firstCharacters.filter(
-                (value): value is string => typeof value === 'string',
+                (value: unknown): value is string => typeof value === 'string',
               )
             : []),
         firstFactions:
           input.seed.firstFactions ??
           (Array.isArray(currentSeed.firstFactions)
             ? currentSeed.firstFactions.filter(
-                (value): value is string => typeof value === 'string',
+                (value: unknown): value is string => typeof value === 'string',
               )
             : []),
         firstHistoricalEvent:
@@ -472,7 +547,11 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
       const currentBible = current.bibleVersions[0];
 
       if (!currentBible) {
-        throw new Error('World bible version is missing.');
+        throw new WorldError(409, 'World bible version is missing.');
+      }
+
+      if (currentBible.publishedAt || currentBible.hiveReferenceId) {
+        throw new WorldError(409, 'Published world bible versions cannot be edited in place.');
       }
 
       await transaction.worldBibleVersion.update({
@@ -482,6 +561,20 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
         },
         where: {
           id: currentBible.id,
+        },
+      });
+
+      await transaction.worldAuditLog.create({
+        data: {
+          action: WorldAuditAction.WORLD_BIBLE_UPDATED,
+          actorId: input.actorId,
+          metadata: {
+            changeSummary: input.bible.changeSummary?.trim() || currentBible.changeSummary,
+            versionNumber: currentBible.versionNumber,
+          },
+          targetId: currentBible.id,
+          targetType: 'WORLD_BIBLE_VERSION',
+          worldId: input.worldId,
         },
       });
     }
@@ -494,5 +587,5 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
     });
   });
 
-  return world ? serializeWorld(world) : null;
+  return serializeWorld(world);
 }

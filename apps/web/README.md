@@ -32,11 +32,13 @@ Quality commands:
 
 ```bash
 npm run lint --workspace=@hivelore/web
+npm test --workspace=@hivelore/web
 npm run typecheck --workspace=@hivelore/web
 npm run build --workspace=@hivelore/web
 ```
 
-There is currently no configured `test` script.
+The repository root `npm test` command runs every workspace test script with
+`--workspaces --if-present`, including this web suite.
 
 ## Environment Variables
 

@@ -23,6 +23,10 @@ type RateLimitRouteInfo = {
   url?: string | undefined;
 };
 
+type RateLimitChildOptions = RateLimitRouteInfo & {
+  routeInfo?: RateLimitRouteInfo | undefined;
+};
+
 type RateLimitRow = {
   count: number;
   expiresAt: Date;
@@ -38,6 +42,16 @@ type RateLimitStoreConstructor = new (options?: RateLimitStoreOptions) => RateLi
 
 const DEFAULT_NAMESPACE = 'hivelore-auth-rate-limit';
 const CLEANUP_INTERVAL_INCREMENTS = 100;
+
+export function extractRateLimitRouteInfo(options: RateLimitChildOptions): RateLimitRouteInfo {
+  const routeInfo = options.routeInfo ?? options;
+
+  return {
+    method: routeInfo.method,
+    path: routeInfo.path,
+    url: routeInfo.url,
+  };
+}
 
 function routeScope(routeInfo: RateLimitStoreOptions['routeInfo']) {
   if (!routeInfo) {
@@ -75,10 +89,10 @@ export function createPrismaRateLimitStore(
       );
     }
 
-    child(routeOptions: RateLimitRouteInfo) {
+    child(routeOptions: RateLimitChildOptions) {
       return new PrismaRateLimitStore({
         ...this.options,
-        routeInfo: routeOptions,
+        routeInfo: extractRateLimitRouteInfo(routeOptions),
       });
     }
 

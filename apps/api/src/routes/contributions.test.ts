@@ -419,6 +419,9 @@ function createDatabase() {
     },
     refreshSession: {
       async findUnique(args: { where: { id: string } }) {
+        if (!args.where.id.startsWith('session-')) {
+          return null;
+        }
         const userId = args.where.id.replace(/^session-/, '');
 
         return {
@@ -431,6 +434,17 @@ function createDatabase() {
     world: {
       async findUnique(args: { where: { id: string } }) {
         return worlds.find((world) => world.id === args.where.id) ?? null;
+      },
+    },
+    worldBibleVersion: {
+      async findFirst(args: { where: { worldId: string } }) {
+        if (!worlds.some((world) => world.id === args.where.worldId)) {
+          return null;
+        }
+
+        return {
+          id: `bible-${args.where.worldId}`,
+        };
       },
     },
     worldAuditLog: {
@@ -826,7 +840,7 @@ describe('contribution routes', () => {
     assert.equal(state.contributions[0]?.status, ContributionStatus.SUBMITTED);
     assert.equal(state.contributions[0]?.proposalId, 'proposal-1');
     assert.equal(submitResponse.json().proposal.authorId, author.id);
-    assert.equal(submitResponse.json().proposal.status, ProposalStatus.SUBMITTED);
+    assert.equal(submitResponse.json().proposal.status, ProposalStatus.VOTING);
     assert.equal(submitResponse.json().proposal.proposalType, ProposalType.UPDATE_LORE);
     assert.deepEqual(submitResponse.json().proposal.proposedContent, structuredDoc);
     assert.equal(

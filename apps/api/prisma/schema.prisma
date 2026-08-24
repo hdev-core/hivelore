@@ -52,6 +52,8 @@ enum ProposalStatus {
   VOTING
   APPROVED_FOR_PUBLICATION
   REJECTED
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
   PUBLISHED
   WITHDRAWN
 }
@@ -59,7 +61,17 @@ enum ProposalStatus {
 enum VoteChoice {
   APPROVE
   REJECT
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
   ABSTAIN
+}
+
+enum ProposalDecisionOutcome {
+  APPROVED_FOR_PUBLICATION
+  REJECTED
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
+  STALE_BASE_CONFLICT
 }
 
 enum AIReportStatus {
@@ -82,6 +94,7 @@ enum ModerationTargetType {
   LORE_ENTRY
   LORE_RELATIONSHIP
   PROPOSAL
+  PROPOSAL_COMMENT
   APP_VOTE
   AI_REPORT
   HIVE_REFERENCE
@@ -147,6 +160,9 @@ enum WorldAuditAction {
   CONTRIBUTION_DELETED
   CONTRIBUTION_SUBMITTED
   PROPOSAL_CREATED
+  CANON_DECISION_FINALIZED
+  CANON_DECISION_CONFIRMED
+  WORLD_BIBLE_UPDATED
   LORE_ENTRY_CREATED
   LORE_ENTRY_UPDATED
   LORE_ENTRY_DELETED
@@ -191,6 +207,8 @@ model User {
   bibleVersions           WorldBibleVersion[]       @relation("WorldBibleVersionCreator")
   loreEntries             LoreEntry[]               @relation("LoreEntryAuthor")
   proposals               Proposal[]                @relation("ProposalAuthor")
+  proposalComments        ProposalComment[]         @relation("ProposalCommentAuthor")
+  deletedProposalComments ProposalComment[]         @relation("ProposalCommentDeleter")
   contributionDrafts      ContributionDraft[]       @relation("ContributionDraftAuthor")
   votes                   AppVote[]                 @relation("AppVoteVoter")
   moderationReports       ModerationReport[]        @relation("ModerationReporter")
@@ -497,20 +515,53 @@ model Proposal {
   resultingBibleVersion   WorldBibleVersion? @relation("ProposalResultingBibleVersion", fields: [resultingBibleVersionId], references: [id], onDelete: SetNull)
   submittedAt             DateTime?
   votingStartedAt         DateTime?
+  votingEndsAt            DateTime?
+  decidedAt               DateTime?
   approvedAt              DateTime?
   rejectedAt              DateTime?
   publishedAt             DateTime?
+  contentHash             String?
+  aiWarningAcknowledgedAt DateTime?
+  baseCanonVersionId      String?
+  branchParentProposalId  String?
+  branchBaseLoreEntryId   String?
+  branchLabel             String?
+  conflictMetadata        Json?
+  staleBaseAtDecision     Boolean            @default(false)
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
   contributionDraft       ContributionDraft?
   votes                   AppVote[]
+  decision                ProposalDecision?
   aiReports               AIReport[]
   moderationReports       ModerationReport[]
+  comments                ProposalComment[]
 
   @@index([worldId, status])
   @@index([authorId])
   @@index([worldId, contributionKind])
   @@index([targetLoreEntryId])
+  @@index([votingEndsAt])
+  @@index([baseCanonVersionId])
+  @@index([branchBaseLoreEntryId])
+}
+
+model ProposalComment {
+  id          String    @id @default(cuid())
+  proposalId  String
+  proposal    Proposal  @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  authorId    String
+  author      User      @relation("ProposalCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body        String    @db.VarChar(3000)
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?     @relation("ProposalCommentDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  /// Off-chain plain-text discussion. Comments never count as AppVote rows or canon decisions.
+
+  @@index([proposalId, createdAt, id])
+  @@index([authorId, createdAt])
+  @@index([deletedById])
 }
 
 model ContributionDraft {
@@ -556,6 +607,55 @@ model AppVote {
   @@unique([proposalId, voterId])
   @@index([proposalId])
   @@index([voterId])
+}
+
+model ProposalDecision {
+  id                     String                  @id @default(cuid())
+  proposalId             String                  @unique
+  proposal               Proposal                @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  outcome                ProposalDecisionOutcome
+  decidedAt              DateTime
+  rulesVersion           String
+  payloadSchemaVersion   Int
+  minimumVotes           Int
+  approvalThresholdBps   Int
+  votingWindowHours      Int
+  approveCount           Int
+  rejectCount            Int
+  needsRevisionCount     Int
+  alternateTimelineCount Int
+  totalVotes             Int
+  approvalNumerator      Int
+  approvalDenominator    Int
+  approvalPercentageBps  Int
+  aiWarningAcknowledged  Boolean                 @default(false)
+  aiWarningSummary       String?
+  baseCanonVersionId     String?
+  branchParentProposalId String?
+  branchBaseLoreEntryId  String?
+  branchLabel            String?
+  conflictMetadata       Json?
+  staleBaseAtDecision    Boolean                 @default(false)
+  contentHash            String
+  decisionPayload        Json
+  decisionPayloadHash    String                  @unique
+  customJsonId           String?
+  expectedSigner         String?
+  hiveEventId            String?                 @unique
+  hiveEvent              HiveEvent?              @relation(fields: [hiveEventId], references: [id], onDelete: SetNull)
+  transactionId          String?
+  blockNumber            BigInt?
+  operationIndex         Int?
+  blockchainTimestamp    DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([transactionId, operationIndex])
+  @@index([outcome])
+  @@index([decidedAt])
+  @@index([customJsonId])
+  @@index([baseCanonVersionId])
+  @@index([branchBaseLoreEntryId])
 }
 
 model AIReport {
@@ -634,16 +734,17 @@ model HiveReference {
 }
 
 model HiveEvent {
-  id                  String        @id @default(cuid())
+  id                  String            @id @default(cuid())
   blockNumber         BigInt
   transactionId       String
   operationIndex      Int
   eventType           HiveEventType
   blockchainTimestamp DateTime
   payload             Json
-  processedAt         DateTime      @default(now())
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  processedAt         DateTime          @default(now())
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  proposalDecision    ProposalDecision?
   /// Rebuildable indexed Hive operation; the blockchain remains authoritative.
 
   @@unique([transactionId, operationIndex])
@@ -662,7 +763,7 @@ model IndexerWatermark {
   updatedAt                   DateTime  @updatedAt
   /// Durable resume point for rebuildable indexer processes.
 
-  @@index([lastProcessedBlock, lastProcessedOperationIndex])
+  @@index([lastProcessedBlock, lastProcessedOperationIndex], map: "IndexerWatermark_lastProcessedBlock_lastProcessedOperationI_idx")
 }
 
 model RewardRecord {
