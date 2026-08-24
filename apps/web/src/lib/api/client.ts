@@ -111,7 +111,8 @@ async function request<TResponse, TBody = JsonBody>(
     headers,
   };
 
-  const timeoutMs = options.timeoutMs === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : options.timeoutMs;
+  const timeoutMs =
+    options.timeoutMs === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : options.timeoutMs;
   const signals = [
     ...(timeoutMs === null ? [] : [createTimeoutSignal(timeoutMs)]),
     ...(options.signal ? [options.signal] : []),
