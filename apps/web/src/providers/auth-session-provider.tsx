@@ -21,6 +21,8 @@ import {
 
 const AUTH_SESSION_CHANNEL = 'hivelore-auth-session';
 const AUTH_REFRESH_LOCK = 'hivelore-auth-refresh';
+const AUTH_REFRESH_LOCK_TIMEOUT_MS = 10_000;
+const AUTH_REFRESH_BROADCAST_WAIT_MS = 750;
 
 type AuthSessionContextValue = {
   accessToken: string | null;
@@ -41,6 +43,32 @@ function refreshAuthSessionOnce() {
   });
 
   return refreshSessionPromise;
+}
+
+function createTimeoutSignal(milliseconds: number) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(milliseconds);
+  }
+
+  const controller = new AbortController();
+  window.setTimeout(() => controller.abort(), milliseconds);
+  return controller.signal;
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
+  );
+}
+
+function isTerminalRefreshError(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
 }
 
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
@@ -79,13 +107,40 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       return refreshAuthSessionOnce();
     };
 
-    const lockedRefresh: Promise<AuthSessionResponse> = (
-      typeof navigator !== 'undefined' && navigator.locks
-        ? navigator.locks.request(AUTH_REFRESH_LOCK, async () => performRefresh())
-        : performRefresh()
-    ) as Promise<AuthSessionResponse>;
+    const waitForBroadcastedSession = async () => {
+      await delay(AUTH_REFRESH_BROADCAST_WAIT_MS);
 
-    const refreshPromise = lockedRefresh
+      if (
+        latestSessionRef.current &&
+        latestSessionRef.current.accessToken !== startingAccessToken
+      ) {
+        return latestSessionRef.current;
+      }
+
+      throw new Error('Could not acquire the auth refresh lock before it timed out.');
+    };
+
+    const refreshWithOptionalLock = async () => {
+      if (typeof navigator === 'undefined' || !navigator.locks) {
+        return performRefresh();
+      }
+
+      try {
+        return await navigator.locks.request(
+          AUTH_REFRESH_LOCK,
+          { signal: createTimeoutSignal(AUTH_REFRESH_LOCK_TIMEOUT_MS) },
+          async () => performRefresh(),
+        );
+      } catch (error) {
+        if (isAbortError(error)) {
+          return waitForBroadcastedSession();
+        }
+
+        throw error;
+      }
+    };
+
+    const refreshPromise = refreshWithOptionalLock()
       .then((session) => {
         setSession(session);
         channelRef.current?.postMessage({
@@ -95,7 +150,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return session;
       })
       .catch((error) => {
-        if (error instanceof ApiError && error.status === 401) {
+        if (isTerminalRefreshError(error)) {
           accessTokenRef.current = null;
           latestSessionRef.current = null;
           userRef.current = null;
@@ -156,8 +211,8 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
           setSession(session);
         }
       })
-      .catch(() => {
-        if (isMounted) {
+      .catch((error) => {
+        if (isMounted && isTerminalRefreshError(error)) {
           setAccessToken(null);
           setUser(null);
         }

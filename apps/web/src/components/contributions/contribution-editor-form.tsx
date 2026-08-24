@@ -1,0 +1,673 @@
+'use client';
+
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+
+import { RichTextEditor, type StructuredEditorContent } from '@/components/editor/rich-text-editor';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { ApiError } from '@/lib/api/errors';
+import {
+  createContribution,
+  listContributions,
+  submitContribution,
+  updateContribution,
+  type Contribution,
+  type ContributionKind,
+} from '@/lib/api/contributions';
+import { useAuthSession } from '@/providers/auth-session-provider';
+
+const STRUCTURED_DOCUMENT_MAX_BYTES = 100 * 1024;
+
+const emptyDocument: StructuredEditorContent = {
+  type: 'doc',
+  content: [],
+};
+
+type ContributionEditorFormProps = {
+  initialKind: ContributionKind;
+  targetLoreEntryId?: string;
+  unsupportedType?: string;
+  worldId: string;
+};
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.body?.error ?? 'Contribution could not be saved.';
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Contribution could not be saved.';
+}
+
+function getPreflightErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.body?.error ?? 'Contribution access could not be checked.';
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Contribution access could not be checked.';
+}
+
+function getRefreshFailureMessage(error: unknown) {
+  if (isTerminalRefreshError(error)) {
+    return 'Your session expired. Sign in again before saving this contribution.';
+  }
+
+  return 'Could not refresh your session. Your draft is still on this page; try again before leaving.';
+}
+
+function isTerminalRefreshError(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function hasMeaningfulText(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(hasMeaningfulText);
+  }
+
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  if ('text' in value && typeof value.text === 'string' && value.text.trim()) {
+    return true;
+  }
+
+  return Object.values(value).some(hasMeaningfulText);
+}
+
+function getStructuredDocumentBytes(content: StructuredEditorContent) {
+  return new TextEncoder().encode(JSON.stringify(content)).length;
+}
+
+export function ContributionEditorForm({
+  initialKind,
+  targetLoreEntryId,
+  unsupportedType,
+  worldId,
+}: ContributionEditorFormProps) {
+  const router = useRouter();
+  const { accessToken, isSessionLoading, refreshSession, user } = useAuthSession();
+  const accessTokenRef = useRef<string | null>(accessToken);
+  const hasAllowedAccessRef = useRef(false);
+  const lastPreflightKeyRef = useRef<string | null>(null);
+  const operationInFlightRef = useRef(false);
+  const [content, setContent] = useState<StructuredEditorContent>(emptyDocument);
+  const [draft, setDraft] = useState<Contribution | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [kind, setKind] = useState<ContributionKind>(initialKind);
+  const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
+  const [permissionRetryKey, setPermissionRetryKey] = useState(0);
+  const [permissionStatus, setPermissionStatus] = useState<
+    'checking' | 'allowed' | 'denied' | 'error' | 'reauth'
+  >('checking');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [summary, setSummary] = useState('');
+  const [targetId, setTargetId] = useState(targetLoreEntryId ?? '');
+  const [title, setTitle] = useState('');
+  accessTokenRef.current = accessToken;
+
+  useEffect(() => {
+    if (isSessionLoading) {
+      return;
+    }
+
+    const preflightKey = `${worldId}:${permissionRetryKey}`;
+
+    if (hasAllowedAccessRef.current && lastPreflightKeyRef.current === preflightKey) {
+      return;
+    }
+
+    const initialAccessToken = accessTokenRef.current;
+
+    if (!initialAccessToken) {
+      setPermissionStatus('reauth');
+      setPermissionMessage('Please sign in before drafting contributions in this world.');
+      return;
+    }
+
+    const preflightAccessToken = initialAccessToken;
+    const controller = new AbortController();
+    lastPreflightKeyRef.current = preflightKey;
+
+    setPermissionStatus((currentStatus) =>
+      currentStatus === 'allowed' ? currentStatus : 'checking',
+    );
+    setError(null);
+    setPermissionMessage(null);
+
+    async function checkAccess() {
+      let token = preflightAccessToken;
+
+      try {
+        await listContributions(worldId, { page: 1, pageSize: 1 }, token, {
+          signal: controller.signal,
+        });
+
+        if (!controller.signal.aborted) {
+          hasAllowedAccessRef.current = true;
+          setPermissionStatus('allowed');
+          setPermissionMessage(null);
+        }
+      } catch (nextError: unknown) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        if (nextError instanceof ApiError && nextError.status === 401) {
+          try {
+            const session = await refreshSession();
+            token = session.accessToken;
+
+            await listContributions(worldId, { page: 1, pageSize: 1 }, token, {
+              signal: controller.signal,
+            });
+
+            if (!controller.signal.aborted) {
+              hasAllowedAccessRef.current = true;
+              setPermissionStatus('allowed');
+              setPermissionMessage(null);
+            }
+          } catch (refreshError) {
+            if (!controller.signal.aborted) {
+              setPermissionStatus(isTerminalRefreshError(refreshError) ? 'reauth' : 'error');
+              setPermissionMessage(getRefreshFailureMessage(refreshError));
+            }
+          }
+
+          return;
+        }
+
+        if (nextError instanceof ApiError && nextError.status === 403) {
+          setPermissionStatus('denied');
+          setPermissionMessage('You do not have permission to draft contributions in this world.');
+          return;
+        }
+
+        if (nextError instanceof ApiError && nextError.status === 404) {
+          setPermissionStatus('denied');
+          setPermissionMessage('World not found.');
+          return;
+        }
+
+        setPermissionStatus('error');
+        setPermissionMessage(getPreflightErrorMessage(nextError));
+      }
+    }
+
+    checkAccess();
+
+    return () => {
+      controller.abort();
+    };
+  }, [isSessionLoading, permissionRetryKey, refreshSession, worldId]);
+
+  useEffect(() => {
+    const hasUnsavedWork = Boolean(title.trim() || summary.trim() || hasMeaningfulText(content));
+
+    if (!hasUnsavedWork || draft?.status === 'SUBMITTED') {
+      return;
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [content, draft?.status, summary, title]);
+
+  const contentBytes = getStructuredDocumentBytes(content);
+  const isContentTooLarge = contentBytes > STRUCTURED_DOCUMENT_MAX_BYTES;
+  const contentKilobytes = Math.ceil(contentBytes / 1024);
+  const contentLimitKilobytes = STRUCTURED_DOCUMENT_MAX_BYTES / 1024;
+  const isFormLocked = draft?.status === 'SUBMITTED' || isSaving || isSubmitting;
+
+  const canSave = useMemo(
+    () =>
+      Boolean(
+        accessToken &&
+        permissionStatus === 'allowed' &&
+        title.trim() &&
+        hasMeaningfulText(content) &&
+        !isContentTooLarge &&
+        !isSaving &&
+        !isSubmitting,
+      ),
+    [accessToken, content, isContentTooLarge, isSaving, isSubmitting, permissionStatus, title],
+  );
+
+  const canSubmit = canSave && !isSubmitting;
+
+  function buildPayload() {
+    const trimmedSummary = summary.trim();
+    const trimmedTargetId = targetId.trim();
+
+    return {
+      content,
+      kind,
+      ...(trimmedSummary ? { summary: trimmedSummary } : draft ? { summary: null } : {}),
+      ...(trimmedTargetId
+        ? { targetLoreEntryId: trimmedTargetId }
+        : draft
+          ? { targetLoreEntryId: null }
+          : {}),
+      title: title.trim(),
+    };
+  }
+
+  async function runWithAuthRetry<T>(operation: (token: string) => Promise<T>) {
+    const currentAccessToken = accessTokenRef.current;
+
+    if (!currentAccessToken) {
+      throw new Error('Please sign in before saving a contribution.');
+    }
+
+    try {
+      return await operation(currentAccessToken);
+    } catch (nextError) {
+      if (!(nextError instanceof ApiError) || nextError.status !== 401) {
+        throw nextError;
+      }
+
+      try {
+        const session = await refreshSession();
+        accessTokenRef.current = session.accessToken;
+        return operation(session.accessToken);
+      } catch (refreshError) {
+        throw new Error(getRefreshFailureMessage(refreshError));
+      }
+    }
+  }
+
+  async function saveDraft(options: { internal?: boolean } = {}) {
+    if (operationInFlightRef.current && !options.internal) {
+      return null;
+    }
+
+    if (!options.internal) {
+      operationInFlightRef.current = true;
+    }
+
+    setError(null);
+
+    if (!accessTokenRef.current) {
+      setError('Please sign in before saving a contribution.');
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
+      return null;
+    }
+
+    if (permissionStatus !== 'allowed') {
+      setError('You do not have permission to draft contributions in this world.');
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
+      return null;
+    }
+
+    if (isContentTooLarge) {
+      setError(`Contribution body must stay under ${contentLimitKilobytes} KB.`);
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
+      return null;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const payload = buildPayload();
+      const response = await runWithAuthRetry((token) =>
+        draft
+          ? updateContribution(worldId, draft.id, payload, token)
+          : createContribution(worldId, payload, token),
+      );
+
+      setDraft(response.contribution);
+      return response.contribution;
+    } catch (nextError) {
+      setError(getErrorMessage(nextError));
+      return null;
+    } finally {
+      setIsSaving(false);
+      if (!options.internal) {
+        operationInFlightRef.current = false;
+      }
+    }
+  }
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isSubmitting) {
+      return;
+    }
+
+    await saveDraft();
+  }
+
+  async function handleSubmitForVote() {
+    if (operationInFlightRef.current) {
+      return;
+    }
+
+    operationInFlightRef.current = true;
+    setError(null);
+
+    if (!accessTokenRef.current) {
+      setError('Please sign in before submitting a contribution.');
+      operationInFlightRef.current = false;
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const currentDraft = await saveDraft({ internal: true });
+
+      if (!currentDraft) {
+        return;
+      }
+
+      const response = await runWithAuthRetry((token) =>
+        submitContribution(worldId, currentDraft.id, token),
+      );
+      setDraft(response.contribution);
+
+      if (response.proposal?.id) {
+        router.push(`/worlds/${worldId}/proposals/${response.proposal.id}`);
+      }
+    } catch (nextError) {
+      setError(getErrorMessage(nextError));
+    } finally {
+      setIsSubmitting(false);
+      operationInFlightRef.current = false;
+    }
+  }
+
+  const shouldShowEditor = permissionStatus === 'allowed' || hasAllowedAccessRef.current;
+  const signInHref = `/login?next=${encodeURIComponent(`/worlds/${worldId}/contribute`)}`;
+  const shouldShowSessionRecovery =
+    hasAllowedAccessRef.current &&
+    !accessToken &&
+    !isSessionLoading &&
+    draft?.status !== 'SUBMITTED';
+
+  return (
+    <form className="space-y-6" onSubmit={handleSave}>
+      {permissionStatus === 'checking' ? (
+        <Card>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">Checking contribution access...</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {error ? (
+        <Alert variant="danger">
+          <AlertTitle>Contribution was not saved</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {unsupportedType ? (
+        <Alert variant="warning">
+          <AlertTitle>Contribution type not supported yet</AlertTitle>
+          <AlertDescription>
+            The contribution API currently supports lore updates and stories.{' '}
+            <strong>{unsupportedType}</strong> is not supported yet, so this draft will be saved as
+            a lore update until typed contribution categories are added.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {permissionStatus === 'denied' ||
+      permissionStatus === 'error' ||
+      permissionStatus === 'reauth' ? (
+        <Card>
+          <CardContent>
+            <Alert variant={permissionStatus === 'error' ? 'warning' : 'danger'}>
+              <AlertTitle>
+                {permissionStatus === 'error'
+                  ? 'Could not check contribution access'
+                  : permissionStatus === 'reauth'
+                    ? 'Sign in again'
+                    : 'Contribution access unavailable'}
+              </AlertTitle>
+              <AlertDescription>
+                {permissionMessage ??
+                  (permissionStatus === 'error'
+                    ? 'Try checking contribution access again.'
+                    : permissionStatus === 'reauth'
+                      ? 'Your session expired. Sign in again before drafting contributions.'
+                      : 'You do not have permission to draft contributions in this world.')}
+              </AlertDescription>
+            </Alert>
+            <div className="flex flex-wrap gap-3">
+              {permissionStatus === 'reauth' ? (
+                <Link
+                  className="inline-flex min-h-10 items-center justify-center rounded-control border border-[var(--hive-red)] bg-[var(--hive-red)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_srgb,var(--hive-red)_88%,black)] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  href={signInHref}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Sign in
+                </Link>
+              ) : null}
+              {permissionStatus === 'error' ? (
+                <Button
+                  onClick={() => setPermissionRetryKey((currentKey) => currentKey + 1)}
+                  type="button"
+                  variant="outline"
+                >
+                  Retry
+                </Button>
+              ) : null}
+              <Link
+                className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                href={`/worlds/${worldId}`}
+              >
+                Back to World
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!shouldShowEditor ? null : (
+        <>
+          {shouldShowSessionRecovery ? (
+            <Alert variant="danger">
+              <AlertTitle>Sign in again before saving</AlertTitle>
+              <AlertDescription>
+                Your draft is still on this page. Sign in again in a new tab, then return here to
+                save or submit it.
+              </AlertDescription>
+              <div className="mt-3">
+                <Link
+                  className="inline-flex min-h-10 items-center justify-center rounded-control border border-[var(--hive-red)] bg-[var(--hive-red)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_srgb,var(--hive-red)_88%,black)] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  href={signInHref}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </Alert>
+          ) : null}
+
+          {draft?.status === 'SUBMITTED' ? (
+            <Alert variant="success">
+              <AlertTitle>Proposal submitted</AlertTitle>
+              <AlertDescription>
+                This contribution is locked as a proposal and ready for the voting flow.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          <section className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Draft contribution</CardTitle>
+                <CardDescription>
+                  Structured content tied to this world before it enters canon voting.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-2 text-sm font-semibold md:col-span-2">
+                    Title
+                    <Input
+                      disabled={isFormLocked}
+                      maxLength={200}
+                      onChange={(event) => setTitle(event.target.value)}
+                      placeholder="A treaty breaks beneath the old gate"
+                      required
+                      value={title}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold">
+                    Contribution type
+                    <Select
+                      disabled={isFormLocked}
+                      onChange={(event) => setKind(event.target.value as ContributionKind)}
+                      value={kind}
+                    >
+                      <option value="LORE">Lore update</option>
+                      <option value="STORY">Story contribution</option>
+                    </Select>
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold">
+                    Target lore entry ID
+                    <Input
+                      disabled={isFormLocked}
+                      onChange={(event) => setTargetId(event.target.value)}
+                      placeholder="Optional existing entry ID"
+                      value={targetId}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold md:col-span-2">
+                    Summary
+                    <Textarea
+                      disabled={isFormLocked}
+                      maxLength={1000}
+                      onChange={(event) => setSummary(event.target.value)}
+                      placeholder="What should reviewers understand before voting?"
+                      rows={3}
+                      value={summary}
+                    />
+                  </label>
+                  <div className="md:col-span-2">
+                    <RichTextEditor
+                      disabled={isFormLocked}
+                      label="Contribution body"
+                      onJsonChange={setContent}
+                      placeholder="Write the contribution that reviewers will vote on..."
+                    />
+                    <p
+                      className={
+                        isContentTooLarge
+                          ? 'mt-2 text-sm font-semibold text-danger'
+                          : 'mt-2 text-sm text-muted-foreground'
+                      }
+                    >
+                      {contentKilobytes} KB of {contentLimitKilobytes} KB
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="space-y-6">
+              <Card variant="elevated">
+                <CardHeader>
+                  <CardTitle>Canon path</CardTitle>
+                  <CardDescription>Drafts become proposals when submitted.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <dl className="space-y-4 text-sm">
+                    <div>
+                      <dt className="font-semibold">Status</dt>
+                      <dd className="mt-2">
+                        <Badge variant={draft?.status === 'SUBMITTED' ? 'proposal' : 'neutral'}>
+                          {draft?.status ?? 'Unsaved draft'}
+                        </Badge>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold">World</dt>
+                      <dd className="mt-1 text-muted-foreground">{worldId}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold">Author</dt>
+                      <dd className="mt-1 text-muted-foreground">
+                        {user ? `@${user.hiveUsername}` : 'Sign in required'}
+                      </dd>
+                    </div>
+                  </dl>
+                </CardContent>
+              </Card>
+
+              <Alert variant="warning">
+                <AlertTitle>Before submitting</AlertTitle>
+                <AlertDescription>
+                  Submitted drafts are locked once they enter proposal review.
+                </AlertDescription>
+              </Alert>
+            </div>
+          </section>
+
+          <Card>
+            <CardContent>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  disabled={!canSave || draft?.status === 'SUBMITTED'}
+                  isLoading={isSaving && !isSubmitting}
+                  type="submit"
+                  variant="outline"
+                >
+                  Save Draft
+                </Button>
+                <Button
+                  disabled={!canSubmit || draft?.status === 'SUBMITTED'}
+                  isLoading={isSubmitting}
+                  onClick={handleSubmitForVote}
+                  type="button"
+                  variant="hive"
+                >
+                  Submit Proposal
+                </Button>
+                <Link
+                  className="inline-flex min-h-10 items-center justify-center rounded-control border border-transparent bg-transparent px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  href={`/worlds/${worldId}`}
+                >
+                  Back to World
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </form>
+  );
+}

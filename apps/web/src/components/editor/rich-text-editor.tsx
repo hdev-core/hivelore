@@ -7,12 +7,15 @@ import { useEffect } from 'react';
 import { EditorToolbar } from '@/components/editor/editor-toolbar';
 import { cn } from '@/lib/styles';
 
+export type StructuredEditorContent = Record<string, unknown>;
+
 export type RichTextEditorProps = {
   className?: string;
   disabled?: boolean;
-  initialContent?: string;
+  initialContent?: StructuredEditorContent | string;
   label?: string;
   onChange?: (html: string) => void;
+  onJsonChange?: (content: StructuredEditorContent) => void;
   placeholder?: string;
   readOnly?: boolean;
 };
@@ -23,6 +26,7 @@ export function RichTextEditor({
   initialContent = '',
   label = 'Contribution editor',
   onChange,
+  onJsonChange,
   placeholder = 'Draft lore contribution notes...',
   readOnly = false,
 }: RichTextEditorProps) {
@@ -42,6 +46,7 @@ export function RichTextEditor({
     ],
     onUpdate: ({ editor: updatedEditor }) => {
       onChange?.(updatedEditor.getHTML());
+      onJsonChange?.(updatedEditor.getJSON() as StructuredEditorContent);
     },
   });
 
@@ -65,10 +70,6 @@ export function RichTextEditor({
           role="textbox"
         />
       </div>
-      <p className="text-sm leading-6 text-muted-foreground">
-        Semi-controlled editor: `initialContent` seeds TipTap once, and `onChange` reports HTML
-        updates for parent-owned draft state.
-      </p>
     </div>
   );
 }

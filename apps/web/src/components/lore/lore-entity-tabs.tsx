@@ -185,7 +185,7 @@ export function LoreEntityTabs({ fallbackEntries, worldId }: LoreEntityTabsProps
                           </Link>
                           <Link
                             className="text-sm font-semibold text-foreground underline-offset-4 hover:underline"
-                            href={`/worlds/${worldId}/contribute?entryId=${entry.id}`}
+                            href={`/worlds/${worldId}/lore/edit?entryId=${entry.id}`}
                           >
                             Edit
                           </Link>
@@ -207,7 +207,7 @@ export function LoreEntityTabs({ fallbackEntries, worldId }: LoreEntityTabsProps
                       </div>
                       <Link
                         className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                        href={`/worlds/${worldId}/contribute?type=${category.id}`}
+                        href={`/worlds/${worldId}/lore/edit?type=${category.id}`}
                       >
                         Add {category.label}
                       </Link>

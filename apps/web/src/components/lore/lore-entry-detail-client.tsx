@@ -178,13 +178,13 @@ function LoreEntryContent({ entry, worldId }: { entry: LoreEntry; worldId: strin
             <div className="grid gap-3">
               <Link
                 className="inline-flex min-h-10 items-center justify-center rounded-control border border-[var(--hive-red)] bg-[var(--hive-red)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[color-mix(in_srgb,var(--hive-red)_88%,black)] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                href={`/worlds/${worldId}/contribute?entryId=${entry.id}`}
+                href={`/worlds/${worldId}/lore/edit?entryId=${entry.id}`}
               >
                 Suggest edit
               </Link>
               <Link
                 className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                href={`/worlds/${worldId}/contribute?type=${entry.loreType}`}
+                href={`/worlds/${worldId}/lore/edit?type=${entry.loreType}`}
               >
                 Extend this lore
               </Link>
