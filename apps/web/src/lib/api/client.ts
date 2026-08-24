@@ -8,6 +8,7 @@ type RequestOptions<TBody = JsonBody> = {
   body?: TBody | undefined;
   headers?: HeadersInit;
   signal?: AbortSignal | null;
+  timeoutMs?: number | null;
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -110,10 +111,15 @@ async function request<TResponse, TBody = JsonBody>(
     headers,
   };
 
-  requestInit.signal = combineSignals([
-    createTimeoutSignal(DEFAULT_REQUEST_TIMEOUT_MS),
+  const timeoutMs = options.timeoutMs === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : options.timeoutMs;
+  const signals = [
+    ...(timeoutMs === null ? [] : [createTimeoutSignal(timeoutMs)]),
     ...(options.signal ? [options.signal] : []),
-  ]);
+  ];
+
+  if (signals.length) {
+    requestInit.signal = combineSignals(signals);
+  }
 
   if (hasJsonBody(options.body)) {
     requestInit.body = JSON.stringify(options.body);
