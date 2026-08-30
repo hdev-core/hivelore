@@ -10,6 +10,7 @@ import { registerContributionRoutes } from './routes/contributions.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerLoreRoutes } from './routes/lore.js';
 import { registerProposalRoutes } from './routes/proposals.js';
+import { registerProfileRoutes } from './routes/profiles.js';
 import { registerWorldRoutes } from './routes/worlds.js';
 
 export async function buildApp() {
@@ -52,6 +53,7 @@ export async function buildApp() {
   await registerLoreRoutes(app);
   await registerContributionRoutes(app);
   await registerProposalRoutes(app);
+  await registerProfileRoutes(app);
 
   return app;
 }
