@@ -25,6 +25,7 @@ import {
   getProposal,
   getProposalComments,
   PROPOSAL_COMMENT_MAX_LENGTH,
+  runProposalConsistencyCheck,
   type ProposalCommentsResponse,
   type ProposalDetail,
   type VoteChoice,
@@ -331,6 +332,33 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
     },
   });
 
+  const consistencyMutation = useMutation({
+    mutationFn: () =>
+      runProposalConsistencyCheck({
+        accessToken: accessToken ?? '',
+        proposalId,
+        worldId,
+      }),
+    onSuccess: () => {
+      void invalidateProposal();
+    },
+  });
+
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !proposal ||
+      proposal.status !== 'VOTING' ||
+      proposal.aiWarning.acknowledgmentRequired ||
+      consistencyMutation.isPending ||
+      consistencyMutation.isSuccess
+    ) {
+      return;
+    }
+
+    consistencyMutation.mutate();
+  }, [accessToken, consistencyMutation, proposal, proposalId, worldId]);
+
   const signMutation = useMutation({
     mutationFn: async () => {
       const operation = await createCanonTransaction({
@@ -495,6 +523,15 @@ export function CanonVoteScreen({ proposalId, worldId }: { proposalId: string; w
                 confirmMutation.error ??
                 commentMutation.error,
             )}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {consistencyMutation.isPending ? (
+        <Alert variant="info">
+          <AlertTitle>Checking canon consistency</AlertTitle>
+          <AlertDescription>
+            Comparing the proposal with the World Bible and published canon before voting.
           </AlertDescription>
         </Alert>
       ) : null}
