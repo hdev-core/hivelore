@@ -92,6 +92,8 @@ export async function getUserProfile(database: UserProfileDatabase, username: st
       id: true,
       normalizedHiveUsername: true,
       contributionDrafts: {
+        // Public endpoint: never expose unsubmitted drafts (ContributionStatus.DRAFT).
+        where: { status: 'SUBMITTED' },
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
@@ -106,6 +108,9 @@ export async function getUserProfile(database: UserProfileDatabase, username: st
         take: 10,
       },
       loreEntries: {
+        // Public endpoint: only canon is public. DRAFT/SUBMITTED/APPROVED_FOR_PUBLICATION
+        // and ARCHIVED entries stay private to the author.
+        where: { status: 'PUBLISHED_CANON' },
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
