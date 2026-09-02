@@ -104,6 +104,7 @@ function createDatabase() {
   const users = [author, otherUser, curator];
   const loreEntries: StoredLoreEntry[] = [];
   const loreRelationships: StoredLoreRelationship[] = [];
+  const searchIndexes: unknown[] = [];
   const worldAuditLogs: unknown[] = [];
   const memberships = [
     {
@@ -212,6 +213,10 @@ function createDatabase() {
       },
       async findFirst(args: { where: Record<string, unknown> }) {
         const entry = loreEntries.find((candidate) => matchesWhere(candidate, args.where)) ?? null;
+        return entry ? includeLore(entry) : null;
+      },
+      async findUnique(args: { where: { id: string } }) {
+        const entry = loreEntries.find((candidate) => candidate.id === args.where.id) ?? null;
         return entry ? includeLore(entry) : null;
       },
       async findMany(args: { skip: number; take: number; where: Record<string, unknown> }) {
@@ -350,6 +355,44 @@ function createDatabase() {
             status: loreEntries.find((entry) => entry.id === relationship.targetId)!.status,
           },
         };
+      },
+    },
+    searchIndex: {
+      async deleteMany(args: { where?: { entityId?: string; entityType?: string } } = {}) {
+        const before = searchIndexes.length;
+
+        for (let index = searchIndexes.length - 1; index >= 0; index -= 1) {
+          const row = searchIndexes[index] as { entityId?: string; entityType?: string };
+          const matchesEntity = !args.where?.entityId || row.entityId === args.where.entityId;
+          const matchesType = !args.where?.entityType || row.entityType === args.where.entityType;
+
+          if (matchesEntity && matchesType) {
+            searchIndexes.splice(index, 1);
+          }
+        }
+
+        return { count: before - searchIndexes.length };
+      },
+      async upsert(args: {
+        create: { entityId: string; entityType: string };
+        update: Record<string, unknown>;
+        where: { entityType_entityId: { entityId: string; entityType: string } };
+      }) {
+        const existing = searchIndexes.find(
+          (row) =>
+            (row as { entityId: string; entityType: string }).entityId ===
+              args.where.entityType_entityId.entityId &&
+            (row as { entityId: string; entityType: string }).entityType ===
+              args.where.entityType_entityId.entityType,
+        );
+
+        if (existing) {
+          Object.assign(existing as Record<string, unknown>, args.update);
+          return existing;
+        }
+
+        searchIndexes.push(args.create);
+        return args.create;
       },
     },
     refreshSession: {

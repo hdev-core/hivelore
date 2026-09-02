@@ -155,6 +155,11 @@ try {
         cwd: baseApiWorkspaceDir,
       },
     );
+
+    console.log('Re-running base branch migration history after resolve');
+    runPrisma(['migrate', 'deploy', '--schema', baseSchema, '--config', baseConfig], {
+      cwd: baseApiWorkspaceDir,
+    });
   }
 
   console.log('Deploying repaired migration history from this branch');

@@ -21,6 +21,10 @@ import {
   ProposalCommentError,
   PROPOSAL_COMMENT_MAX_LENGTH,
 } from '../lib/proposal-comments.js';
+import {
+  ProposalConsistencyError,
+  runProposalConsistencyCheck,
+} from '../lib/proposal-consistency.js';
 import { authorizeWorldPermission } from '../lib/world-authorization.js';
 import type { WorldMembershipLookup } from '../lib/world-authorization.js';
 import { roleHasWorldPermission, WORLD_PERMISSIONS } from '../lib/world-permissions.js';
@@ -113,6 +117,17 @@ function hiveBroadcastStatusCode(error: HiveBroadcastError) {
 
 function handleProposalCommentError(error: unknown, reply: FastifyReply) {
   if (error instanceof ProposalCommentError) {
+    return reply.code(error.statusCode).send({
+      code: error.code,
+      error: error.message,
+    });
+  }
+
+  throw error;
+}
+
+function handleProposalConsistencyError(error: unknown, reply: FastifyReply) {
+  if (error instanceof ProposalConsistencyError) {
     return reply.code(error.statusCode).send({
       code: error.code,
       error: error.message,
@@ -250,6 +265,41 @@ export async function registerProposalRoutes(
       return handleCanonVotingError(error, reply);
     }
   });
+
+  app.post(
+    '/worlds/:worldId/proposals/:proposalId/ai-consistency',
+    {
+      preHandler: requireSession(authOptions(database)),
+    },
+    async (request, reply) => {
+      const params = paramsSchema.safeParse(request.params);
+
+      if (!params.success) {
+        return reply.code(400).send({
+          code: 'INVALID_PROPOSAL_ROUTE',
+          error: 'Invalid proposal route.',
+        });
+      }
+
+      const authorized = await authorizeWorldPermission(
+        request,
+        reply,
+        params.data.worldId,
+        WORLD_PERMISSIONS.VOTE_ON_PROPOSAL,
+        database,
+      );
+
+      if (!authorized) {
+        return;
+      }
+
+      try {
+        return await runProposalConsistencyCheck(database, params.data);
+      } catch (error) {
+        return handleProposalConsistencyError(error, reply);
+      }
+    },
+  );
 
   app.get('/worlds/:worldId/proposals/:proposalId/comments', async (request, reply) => {
     const params = paramsSchema.safeParse(request.params);

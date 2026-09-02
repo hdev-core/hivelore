@@ -822,18 +822,20 @@ model UserReputationSnapshot {
 }
 
 model SearchIndex {
-  id                String           @id @default(cuid())
+  id                String                   @id @default(cuid())
   worldId           String?
-  world             World?           @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  world             World?                   @relation(fields: [worldId], references: [id], onDelete: Cascade)
   entityType        SearchEntityType
   entityId          String
   title             String
   searchableContent String
+  searchVector      Unsupported("tsvector")?
   metadata          Json?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
   /// Derived PostgreSQL search projection for the MVP; rebuildable from source records.
 
   @@unique([entityType, entityId])
   @@index([worldId, entityType])
+  @@index([searchVector], type: Gin)
 }
