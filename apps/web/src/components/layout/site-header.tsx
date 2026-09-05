@@ -2,8 +2,8 @@ import Link from 'next/link';
 import { HiveBrand } from '@/components/hive-brand';
 import { ThemeSwitcher } from '@/components/theme-switcher';
 import { DesktopNavigation } from '@/components/layout/desktop-navigation';
+import { GlobalSearchForm } from '@/components/layout/global-search-form';
 import { MobileNavigation } from '@/components/layout/mobile-navigation';
-import { SearchInput } from '@/components/ui/search-input';
 
 export function SiteHeader() {
   return (
@@ -20,7 +20,7 @@ export function SiteHeader() {
         <DesktopNavigation />
 
         <div className="ml-auto hidden w-full max-w-xs lg:block">
-          <SearchInput aria-label="Search placeholder" disabled placeholder="Search coming soon" />
+          <GlobalSearchForm />
         </div>
 
         <div className="hidden items-center gap-3 md:flex">

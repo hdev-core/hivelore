@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { ThemeSwitcher } from '@/components/theme-switcher';
 import { Button } from '@/components/ui/button';
+import { GlobalSearchForm } from '@/components/layout/global-search-form';
 import { navigationLinks } from '@/components/layout/navigation-links';
-import { SearchInput } from '@/components/ui/search-input';
 
 export function MobileNavigation() {
   const [isOpen, setIsOpen] = useState(false);
@@ -103,11 +103,7 @@ export function MobileNavigation() {
               </ul>
             </nav>
             <div className="grid gap-4 border-t border-border pt-4">
-              <SearchInput
-                aria-label="Search placeholder"
-                disabled
-                placeholder="Search coming soon"
-              />
+              <GlobalSearchForm onSearch={() => setIsOpen(false)} />
               <Link
                 className="inline-flex min-h-10 items-center justify-center rounded-control border border-border bg-surface px-4 text-sm font-semibold text-foreground shadow-soft transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 href="/login"
