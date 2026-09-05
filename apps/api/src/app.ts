@@ -1,9 +1,12 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import { randomUUID } from 'node:crypto';
 
 import { env } from './config/env.js';
 import { createPrismaRateLimitStore } from './lib/auth-rate-limit-store.js';
+import { reportUnhandledError } from './lib/error-tracking.js';
+import { createHafClient } from './lib/hive/client.js';
 import { prisma } from './lib/prisma.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerContributionRoutes } from './routes/contributions.js';
@@ -15,6 +18,7 @@ import { registerWorldRoutes } from './routes/worlds.js';
 
 export async function buildApp() {
   const app = Fastify({
+    genReqId: () => randomUUID(),
     logger: {
       level: env.NODE_ENV === 'production' ? 'info' : 'debug',
       redact: [
@@ -31,7 +35,28 @@ export async function buildApp() {
         'body.refresh_token',
       ],
     },
+    requestIdHeader: 'x-request-id',
     trustProxy: env.TRUST_PROXY,
+  });
+
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('x-request-id', request.id);
+  });
+
+  app.addHook('onError', async (request, _reply, error) => {
+    await reportUnhandledError(
+      {
+        error,
+        method: request.method,
+        requestId: request.id,
+        url: request.url,
+      },
+      {
+        enabled: env.ERROR_TRACKING_ENABLED,
+        logger: request.log,
+        webhookUrl: env.ERROR_TRACKING_WEBHOOK_URL,
+      },
+    );
   });
 
   await app.register(cors, {
@@ -47,7 +72,12 @@ export async function buildApp() {
     store: createPrismaRateLimitStore(prisma),
   });
 
-  await registerHealthRoute(app);
+  await registerHealthRoute(app, {
+    database: prisma,
+    getHeadBlock: () => createHafClient().getHeadBlock(),
+    indexerLagThresholdBlocks: env.INDEXER_MAX_READY_LAG_BLOCKS,
+    indexerName: env.INDEXER_NAME,
+  });
   await registerAuthRoutes(app);
   await registerWorldRoutes(app);
   await registerLoreRoutes(app);

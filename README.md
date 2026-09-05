@@ -569,6 +569,8 @@ AUTH_CHALLENGE_TTL_SECONDS=300
 AUTH_COOKIE_DOMAIN=
 AUTH_COOKIE_SECURE=true
 HIVE_AUTH_AUDIENCE="hivelore-local-api"
+ERROR_TRACKING_ENABLED=false
+ERROR_TRACKING_WEBHOOK_URL=
 
 # Hive integration defaults to public development endpoints.
 HIVE_RPC_URL="https://api.hive.blog"
@@ -758,9 +760,12 @@ INDEXER_NAME=hivelore-haf
 INDEXER_START_BLOCK=1
 INDEXER_BATCH_SIZE=100
 INDEXER_MAX_BLOCKS_PER_RUN=1000
+INDEXER_MAX_READY_LAG_BLOCKS=1200
 ```
 
 Run `npm run db:generate` after pulling schema changes, then apply the committed Prisma migrations before running it against a real database.
+
+`GET /health` is the lightweight liveness endpoint. `GET /ready` verifies PostgreSQL connectivity and reports HAF indexer lag against `INDEXER_MAX_READY_LAG_BLOCKS`; it returns `503` when any dependency is degraded. API logs are structured JSON with an `x-request-id` request identifier, and `ERROR_TRACKING_ENABLED=true` posts unhandled error summaries to `ERROR_TRACKING_WEBHOOK_URL` without request headers or secret-bearing bodies.
 
 ## Run Locally
 
@@ -773,6 +778,7 @@ Local services:
 - Web: http://localhost:3000
 - API: http://localhost:3001
 - Health: http://localhost:3001/health
+- Readiness: http://localhost:3001/ready
 
 Run one application at a time:
 
@@ -869,7 +875,7 @@ hivelore/
 Directory roles:
 
 - `apps/web` is the only frontend application. It is a Next.js App Router scaffold.
-- `apps/api` is the only backend application. It is a Fastify TypeScript scaffold with `GET /health`.
+- `apps/api` is the only backend application. It is a Fastify TypeScript API with liveness and readiness endpoints.
 - `apps/api/prisma` contains the canonical API Prisma schema, migrations, and development seed.
 - `packages` is reserved for shared workspace packages. `packages/config` is intentionally minimal until real shared configuration is needed.
 - `.github/workflows` contains CI checks for formatting, linting, type-checking, and builds.

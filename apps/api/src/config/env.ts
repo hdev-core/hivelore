@@ -37,6 +37,8 @@ const envSchema = z.object({
   PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE: z.coerce.number().int().positive().default(10_000),
   PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
   PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  ERROR_TRACKING_ENABLED: booleanEnv(false),
+  ERROR_TRACKING_WEBHOOK_URL: z.string().url().optional(),
   HIVE_RPC_URL: z.string().url().default('https://api.hive.blog'),
   HIVE_MAINNET_CHAIN_ID: z
     .string()
@@ -105,6 +107,7 @@ const envSchema = z.object({
   INDEXER_START_BLOCK: z.coerce.number().int().positive().default(1),
   INDEXER_BATCH_SIZE: z.coerce.number().int().positive().max(1_000).default(100),
   INDEXER_MAX_BLOCKS_PER_RUN: z.coerce.number().int().positive().default(1_000),
+  INDEXER_MAX_READY_LAG_BLOCKS: z.coerce.number().int().nonnegative().default(1_200),
   GOOGLE_AUTH_ENABLED: booleanEnv(false),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -172,6 +175,10 @@ export function parseEnv(environment: NodeJS.ProcessEnv) {
     (!parsedEnv.HIVE_RC_DELEGATOR_ACCOUNT || !parsedEnv.HIVE_RC_DELEGATION_AMOUNT)
   ) {
     throw new Error('Hive RC delegation is enabled but delegation configuration is missing.');
+  }
+
+  if (parsedEnv.ERROR_TRACKING_ENABLED && !parsedEnv.ERROR_TRACKING_WEBHOOK_URL) {
+    throw new Error('Error tracking is enabled but ERROR_TRACKING_WEBHOOK_URL is missing.');
   }
 
   if (!parsedEnv.AUTH_JWT_SECRET || !parsedEnv.AUTH_REFRESH_SECRET) {
