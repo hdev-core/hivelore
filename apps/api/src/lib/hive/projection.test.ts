@@ -98,16 +98,20 @@ describe('HAF projection helpers', () => {
       },
       create: {
         blockNumber: 456n,
+        blockHash: null,
         transactionId: 'def456',
         operationIndex: 0,
+        previousBlockHash: null,
         eventType: 'COMMENT',
         blockchainTimestamp: new Date('2026-07-25T18:30:00.000Z'),
         payload: operation,
       },
       update: {
         blockNumber: 456n,
+        blockHash: null,
         eventType: 'COMMENT',
         blockchainTimestamp: new Date('2026-07-25T18:30:00.000Z'),
+        previousBlockHash: null,
         payload: operation,
       },
     });

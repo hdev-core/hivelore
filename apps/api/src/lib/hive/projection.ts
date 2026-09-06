@@ -8,6 +8,8 @@ export interface HiveProjectionDatabase {
       where: { transactionId_operationIndex: { transactionId: string; operationIndex: number } };
       create: {
         blockNumber: bigint;
+        blockHash: string | null;
+        previousBlockHash: string | null;
         transactionId: string;
         operationIndex: number;
         eventType: HiveProjectionEventType;
@@ -16,6 +18,8 @@ export interface HiveProjectionDatabase {
       };
       update: {
         blockNumber: bigint;
+        blockHash: string | null;
+        previousBlockHash: string | null;
         eventType: HiveProjectionEventType;
         blockchainTimestamp: Date;
         payload: unknown;
@@ -36,6 +40,7 @@ export function normalizeHafOperation(row: HafOperationRow): NormalizedHiveOpera
     blockNumber: BigInt(
       requiredNumeric(row.block_num ?? row.blockNumber ?? row.block, 'block number'),
     ),
+    ...optionalBlockHashes(row),
     transactionId: requiredString(
       row.transaction_id ?? row.transactionId ?? row.trx_id,
       'transaction id',
@@ -63,19 +68,46 @@ export async function projectHiveOperation(
     },
     create: {
       blockNumber: operation.blockNumber,
+      blockHash: operation.blockHash ?? null,
       transactionId: operation.transactionId,
       operationIndex: operation.operationIndex,
+      previousBlockHash: operation.previousBlockHash ?? null,
       eventType: toHiveEventType(operation.operationType),
       blockchainTimestamp: operation.blockchainTimestamp,
       payload: operation.operation,
     },
     update: {
       blockNumber: operation.blockNumber,
+      blockHash: operation.blockHash ?? null,
       eventType: toHiveEventType(operation.operationType),
       blockchainTimestamp: operation.blockchainTimestamp,
+      previousBlockHash: operation.previousBlockHash ?? null,
       payload: operation.operation,
     },
   });
+}
+
+function optionalBlockHashes(row: HafOperationRow): {
+  blockHash?: string | undefined;
+  previousBlockHash?: string | undefined;
+} {
+  const blockHash = optionalHash(row.block_hash ?? row.blockHash ?? row.block_id ?? row.blockId);
+  const previousBlockHash = optionalHash(
+    row.previous_block_hash ??
+      row.previousBlockHash ??
+      row.previous ??
+      row.prev_block ??
+      row.prevBlock,
+  );
+
+  return {
+    ...(blockHash === undefined ? {} : { blockHash }),
+    ...(previousBlockHash === undefined ? {} : { previousBlockHash }),
+  };
+}
+
+function optionalHash(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function unwrapHafOperation(row: HafOperationRow): HiveLoreOperation {

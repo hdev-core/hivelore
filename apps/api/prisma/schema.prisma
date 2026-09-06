@@ -736,6 +736,8 @@ model HiveReference {
 model HiveEvent {
   id                  String            @id @default(cuid())
   blockNumber         BigInt
+  blockHash           String?
+  previousBlockHash   String?
   transactionId       String
   operationIndex      Int
   eventType           HiveEventType
@@ -749,6 +751,7 @@ model HiveEvent {
 
   @@unique([transactionId, operationIndex])
   @@index([blockNumber, operationIndex])
+  @@index([blockHash])
   @@index([eventType])
   @@index([blockchainTimestamp])
 }
@@ -757,6 +760,7 @@ model IndexerWatermark {
   name                        String    @id
   lastProcessedBlock          BigInt    @default(0)
   lastProcessedOperationIndex Int       @default(-1)
+  lastProcessedBlockHash      String?
   lastRunStartedAt            DateTime?
   lastRunFinishedAt           DateTime?
   createdAt                   DateTime  @default(now())
