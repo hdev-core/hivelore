@@ -87,6 +87,28 @@ describe('API environment validation', () => {
     assert.equal(env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_CACHE, 10_000);
     assert.equal(env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_MAX, 5);
     assert.equal(env.PROPOSAL_COMMENT_WRITE_RATE_LIMIT_WINDOW_SECONDS, 60);
+    assert.equal(env.ERROR_TRACKING_ENABLED, false);
+    assert.equal(env.INDEXER_MAX_READY_LAG_BLOCKS, 1_200);
+  });
+
+  test('requires an error tracking webhook only when alerting is enabled', () => {
+    assert.throws(
+      () =>
+        parseEnv({
+          ERROR_TRACKING_ENABLED: 'true',
+          NODE_ENV: 'test',
+        }),
+      /ERROR_TRACKING_WEBHOOK_URL/,
+    );
+
+    assert.equal(
+      parseEnv({
+        ERROR_TRACKING_ENABLED: 'true',
+        ERROR_TRACKING_WEBHOOK_URL: 'https://example.com/hivelore-errors',
+        NODE_ENV: 'test',
+      }).ERROR_TRACKING_ENABLED,
+      true,
+    );
   });
 
   test('rejects invalid Hive network configuration', () => {

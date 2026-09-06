@@ -1,10 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-
-import { PrismaPg } from '@prisma/adapter-pg';
-import pg from 'pg';
 
 import { PrismaClient } from '../generated/prisma/client.js';
 import {
@@ -19,60 +14,11 @@ import { confirmCanonTransaction, CanonVotingError } from './canon-voting.js';
 import { hashCanonicalJson } from './canon-voting-policy.js';
 import { HIVELORE_CUSTOM_JSON_ID } from './hive/constants.js';
 import { buildHiveLoreCustomJsonOperation } from './hive/operations.js';
-
-const { Client } = pg;
-
-const adminUrl = process.env.TEST_DATABASE_ADMIN_URL;
-
-function disposableDatabaseName() {
-  return `hivelore_confirm_race_${Date.now()}_${process.pid}_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
-}
-
-function databaseUrlFor(adminConnectionUrl: string, databaseName: string) {
-  const databaseUrl = new URL(adminConnectionUrl);
-  databaseUrl.pathname = `/${databaseName}`;
-
-  return databaseUrl.toString();
-}
-
-async function withPgClient<T>(
-  connectionString: string,
-  callback: (client: pg.Client) => Promise<T>,
-) {
-  const client = new Client({ connectionString });
-  await client.connect();
-
-  try {
-    return await callback(client);
-  } finally {
-    await client.end();
-  }
-}
-
-function runPrismaMigrateDeploy(databaseUrl: string) {
-  const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const result = spawnSync(executable, ['prisma', 'migrate', 'deploy'], {
-    cwd: new URL('../..', import.meta.url),
-    env: {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-      DIRECT_URL: databaseUrl,
-      NODE_ENV: 'test',
-    },
-    shell: false,
-    stdio: 'inherit',
-  });
-
-  if (result.status !== 0) {
-    throw new Error(`prisma migrate deploy failed with exit code ${result.status}`);
-  }
-}
-
-function createPrismaClient(connectionString: string) {
-  return new PrismaClient({
-    adapter: new PrismaPg({ connectionString }),
-  });
-}
+import {
+  createPrismaClient,
+  testDatabaseAdminUrl,
+  withDisposablePrismaDatabase,
+} from '../test/integration-db.js';
 
 function createBarrier(parties: number) {
   let arrived = 0;
@@ -197,26 +143,10 @@ async function seedConfirmedProposal(database: PrismaClient) {
 
 test(
   'canon decision confirmation is atomic across concurrent PostgreSQL clients',
-  { skip: !adminUrl ? 'TEST_DATABASE_ADMIN_URL is not configured.' : false },
+  { skip: !testDatabaseAdminUrl ? 'TEST_DATABASE_ADMIN_URL is not configured.' : false },
   async () => {
-    assert.ok(adminUrl);
-    const databaseName = disposableDatabaseName();
-
-    if (!databaseName.startsWith('hivelore_confirm_race_')) {
-      throw new Error(`Refusing to use non-disposable database name: ${databaseName}`);
-    }
-
-    const directUrl = databaseUrlFor(adminUrl, databaseName);
-
-    await withPgClient(adminUrl, (client) => client.query(`CREATE DATABASE "${databaseName}"`));
-
-    try {
-      runPrismaMigrateDeploy(directUrl);
-
-      const seedClient = createPrismaClient(directUrl);
+    await withDisposablePrismaDatabase('hivelore_confirm_race', async (seedClient, directUrl) => {
       await seedConfirmedProposal(seedClient);
-      await seedClient.$disconnect();
-
       const firstClient = createPrismaClient(directUrl);
       const secondClient = createPrismaClient(directUrl);
       const synchronizeLookup = createBarrier(2);
@@ -288,19 +218,6 @@ test(
         secondClient.$disconnect(),
         verificationClient.$disconnect(),
       ]);
-    } finally {
-      await withPgClient(adminUrl, async (client) => {
-        await client.query(
-          `
-            SELECT pg_terminate_backend(pid)
-            FROM pg_stat_activity
-            WHERE datname = $1
-              AND pid <> pg_backend_pid()
-          `,
-          [databaseName],
-        );
-        await client.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
-      });
-    }
+    });
   },
 );
