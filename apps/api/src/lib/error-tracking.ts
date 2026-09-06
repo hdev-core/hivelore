@@ -10,8 +10,15 @@ type ErrorTrackingEvent = {
 type ErrorTrackerOptions = {
   enabled?: boolean;
   logger?: FastifyBaseLogger;
+  timeoutMs?: number;
   webhookUrl?: string | undefined;
 };
+
+// Telemetry must never outlive the request it describes. Without a bound, a
+// webhook that accepts the connection and never replies keeps this promise
+// pending until OS-level TCP timeouts - minutes - and Fastify's onError hook
+// would wait on it.
+const DEFAULT_WEBHOOK_TIMEOUT_MS = 2_000;
 
 export function serializeError(error: unknown) {
   if (error instanceof Error) {
@@ -47,6 +54,8 @@ export async function reportUnhandledError(
     return;
   }
 
+  const timeoutMs = options.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS;
+
   try {
     await fetch(options.webhookUrl, {
       body: JSON.stringify(payload),
@@ -54,6 +63,7 @@ export async function reportUnhandledError(
         'content-type': 'application/json',
       },
       method: 'POST',
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     options.logger?.warn(

@@ -44,7 +44,11 @@ export async function buildApp() {
   });
 
   app.addHook('onError', async (request, _reply, error) => {
-    await reportUnhandledError(
+    // Deliberately NOT awaited: Fastify waits for this hook before sending the
+    // error response, so awaiting webhook delivery would let a slow tracker
+    // delay - or with no timeout, indefinitely stall - every failing request.
+    // reportUnhandledError swallows its own errors, so this cannot reject.
+    void reportUnhandledError(
       {
         error,
         method: request.method,
