@@ -23,6 +23,9 @@ const database: HafSyncDatabase = {
         },
       });
     },
+    async deleteMany(args) {
+      return prisma.hiveEvent.deleteMany(args);
+    },
   },
   indexerWatermark: {
     async findUnique(args) {
@@ -42,9 +45,30 @@ const syncService = new HafSyncService(createHafClient(), database, {
 });
 
 try {
-  const result = await syncService.runOnce();
+  const replayFromBlock = getReplayFromBlock(process.argv.slice(2));
+  const result =
+    replayFromBlock === undefined
+      ? await syncService.runOnce()
+      : await syncService.replayFromBlock(replayFromBlock);
 
   console.info('HAF indexer run completed', result);
 } finally {
   await prisma.$disconnect();
+}
+
+function getReplayFromBlock(args: string[]): number | undefined {
+  const replayFlagIndex = args.findIndex((arg) => arg === '--from-block');
+
+  if (replayFlagIndex === -1) {
+    return undefined;
+  }
+
+  const rawBlock = args[replayFlagIndex + 1];
+  const fromBlock = rawBlock === undefined ? Number.NaN : Number(rawBlock);
+
+  if (!Number.isInteger(fromBlock) || fromBlock <= 0) {
+    throw new Error('Usage: npm run indexer:replay --workspace=@hivelore/api -- N');
+  }
+
+  return fromBlock;
 }

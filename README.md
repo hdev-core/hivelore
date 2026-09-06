@@ -753,6 +753,16 @@ The API workspace includes a resumable HAF sync skeleton. It reads HAF block-sea
 npm run indexer:run --workspace=@hivelore/api
 ```
 
+The indexer stores the last processed block number, operation index, and block hash. If a later HAF page shows a different hash for the checkpoint block, or the next block points at a different parent hash, the indexer deletes rebuildable `HiveEvent` rows from the fork point onward and replays the canonical rows. Projection writes are keyed by transaction ID and operation index, so replaying the same block range updates existing rows instead of double-counting events.
+
+To rebuild a range explicitly, pass the first block that should be replayed:
+
+```bash
+npm run indexer:replay --workspace=@hivelore/api -- 123456
+```
+
+Rebuild time is bounded by `INDEXER_BATCH_SIZE`, `INDEXER_MAX_BLOCKS_PER_RUN`, HAF latency, and database write throughput. With the default `INDEXER_MAX_BLOCKS_PER_RUN=1000`, one invocation rebuilds at most 1,000 blocks; larger backfills should be run repeatedly or under an always-on worker and timed in staging before relying on a public freshness SLO.
+
 Optional API environment variables:
 
 ```env

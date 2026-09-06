@@ -73,6 +73,15 @@ export interface HafOperationRow {
   block_num?: number | string;
   blockNumber?: number | string;
   block?: number | string;
+  block_hash?: string;
+  blockHash?: string;
+  block_id?: string;
+  blockId?: string;
+  previous_block_hash?: string;
+  previousBlockHash?: string;
+  previous?: string;
+  prev_block?: string;
+  prevBlock?: string;
   transaction_num?: number | string;
   transaction_id?: string;
   transactionId?: string;
@@ -99,6 +108,8 @@ export interface HafBlockSearchPage {
 
 export interface NormalizedHiveOperation {
   blockNumber: bigint;
+  blockHash?: string | undefined;
+  previousBlockHash?: string | undefined;
   transactionId: string;
   operationIndex: number;
   blockchainTimestamp: Date;
