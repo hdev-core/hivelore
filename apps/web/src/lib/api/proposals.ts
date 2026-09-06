@@ -205,6 +205,20 @@ export function acknowledgeProposalAiWarning(input: {
   );
 }
 
+export function runProposalConsistencyCheck(input: {
+  accessToken: string;
+  proposalId: string;
+  worldId: string;
+}) {
+  return apiClient.post<{ aiReport: unknown; warningCount: number }>(
+    `/worlds/${input.worldId}/proposals/${input.proposalId}/ai-consistency`,
+    {},
+    {
+      headers: authHeaders(input.accessToken),
+    },
+  );
+}
+
 export function finalizeProposal(input: {
   accessToken: string;
   proposalId: string;

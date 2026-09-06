@@ -8,6 +8,7 @@ import { LoreStatus, LoreType, WorldAuditAction } from '../generated/prisma/enum
 import { authenticateRequest, requireSession } from '../lib/auth-middleware.js';
 import type { SessionVerificationDatabase } from '../lib/auth-sessions.js';
 import { prisma } from '../lib/prisma.js';
+import { upsertLoreSearchIndex } from '../lib/search-index.js';
 import {
   authorizeWorldPermission,
   resolveWorldMembership,
@@ -46,7 +47,13 @@ const CONTENT_ENTITY_TYPE_BY_LORE_TYPE: Record<LoreType, string> = {
 
 type LoreDatabase = Pick<
   PrismaClient,
-  '$transaction' | 'loreEntry' | 'loreRelationship' | 'world' | 'worldAuditLog' | 'worldMembership'
+  | '$transaction'
+  | 'loreEntry'
+  | 'loreRelationship'
+  | 'searchIndex'
+  | 'world'
+  | 'worldAuditLog'
+  | 'worldMembership'
 >;
 
 type RegisterLoreRoutesOptions = {
@@ -1337,6 +1344,8 @@ export async function registerLoreRoutes(
             worldId: params.data.worldId,
           });
 
+          await upsertLoreSearchIndex(transaction, created.id);
+
           return created;
         });
 
@@ -1488,6 +1497,8 @@ export async function registerLoreRoutes(
             worldId: params.data.worldId,
           });
 
+          await upsertLoreSearchIndex(transaction, updated.id);
+
           return updated;
         });
 
@@ -1597,6 +1608,13 @@ export async function registerLoreRoutes(
         await transaction.loreEntry.delete({
           where: {
             id: existing.id,
+          },
+        });
+
+        await transaction.searchIndex.deleteMany({
+          where: {
+            entityId: existing.id,
+            entityType: 'LORE_ENTRY',
           },
         });
 

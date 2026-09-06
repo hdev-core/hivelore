@@ -6,6 +6,7 @@ import {
   WorldRole,
 } from '../generated/prisma/enums.js';
 import { mapWorldSlugConflict } from './prisma-conflicts.js';
+import { upsertWorldSearchIndex } from './search-index.js';
 
 export type WorldSeedInput = {
   premise: string;
@@ -46,6 +47,7 @@ export type WorldDatabase = Pick<
   | 'loreEntry'
   | 'proposal'
   | 'refreshSession'
+  | 'searchIndex'
   | 'world'
   | 'worldAuditLog'
   | 'worldBibleVersion'
@@ -297,6 +299,8 @@ export async function createWorld(database: WorldDatabase, input: CreateWorldInp
           worldId: createdWorld.id,
         },
       });
+
+      await upsertWorldSearchIndex(transaction, createdWorld.id);
 
       return transaction.world.findUniqueOrThrow({
         include: worldInclude,
@@ -578,6 +582,8 @@ export async function updateWorld(database: WorldDatabase, input: UpdateWorldInp
         },
       });
     }
+
+    await upsertWorldSearchIndex(transaction, input.worldId);
 
     return transaction.world.findUniqueOrThrow({
       include: worldInclude,
