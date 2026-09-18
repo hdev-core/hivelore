@@ -43,10 +43,10 @@ There is currently no configured `test` script.
 `apps/web/.env.example` documents frontend-safe variables.
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
 ```
 
-`NEXT_PUBLIC_API_URL` is public browser configuration for the API client. Do not put secrets in frontend environment variables.
+`NEXT_PUBLIC_API_BASE_URL` is public browser configuration for the API client. Do not put secrets in frontend environment variables.
 
 ## Structure
 
@@ -91,7 +91,7 @@ Use `LoadingState` for page or contained waiting surfaces, `EmptyState` for no-c
 
 TanStack Query is configured in `src/providers/query-provider.tsx` using `src/lib/query/query-client.ts`. The provider is included once by `src/providers/app-providers.tsx`.
 
-The API client lives in `src/lib/api/client.ts`, with safe API error helpers in `src/lib/api/errors.ts`. It reads `NEXT_PUBLIC_API_URL` from `src/lib/env.ts`. No fake API endpoints were added for the UI foundation.
+The API client lives in `src/lib/api/client.ts`, with safe API error helpers in `src/lib/api/errors.ts`. It reads `NEXT_PUBLIC_API_BASE_URL` from `src/lib/env.ts`. No fake API endpoints were added for the UI foundation.
 
 ## TipTap Editor
 
