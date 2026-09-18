@@ -664,7 +664,7 @@ Directory roles:
 - CI secrets belong in GitHub Actions secrets.
 - Hive private keys must never be collected, stored, transmitted, or logged.
 - `NEXT_PUBLIC_` variables are public browser-exposed values and must never contain secrets.
-- The frontend reads `NEXT_PUBLIC_API_URL`; it is a placeholder until the Fastify API has a production deployment.
+- The frontend reads `NEXT_PUBLIC_API_BASE_URL`; it is a placeholder until the Fastify API has a production deployment.
 
 ## Vercel Setup
 
@@ -679,7 +679,7 @@ Create a Vercel project for the web app with these monorepo settings:
 Required Vercel environment variable:
 
 ```env
-NEXT_PUBLIC_API_URL=<deployed-api-url-placeholder>
+NEXT_PUBLIC_API_BASE_URL=<deployed-api-url-placeholder>
 ```
 
 There is no production API deployment in this scaffold. Replace the placeholder with the deployed Fastify API URL when that later infrastructure exists.
