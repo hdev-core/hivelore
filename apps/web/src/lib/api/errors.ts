@@ -1,4 +1,5 @@
 export type ApiErrorBody = {
+  error?: string;
   message?: string;
   code?: string;
   details?: unknown;

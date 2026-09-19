@@ -1,27 +1,51 @@
 'use client';
 
-import { useId } from 'react';
+import { useEffect, useState } from 'react';
 import { useTheme } from '@/providers/theme-provider';
 
 export function ThemeSwitcher() {
-  const id = useId();
-  const { preference, setPreference } = useTheme();
+  const { resolvedTheme, setPreference } = useTheme();
+  const [hasMounted, setHasMounted] = useState(false);
+  const isDark = resolvedTheme === 'dark';
+  const nextTheme = isDark ? 'light' : 'dark';
+  const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+  const buttonLabel = hasMounted ? label : 'Toggle theme';
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   return (
-    <div className="theme-switcher">
-      <label className="theme-switcher__label" htmlFor={id}>
-        Theme
-      </label>
-      <select
-        id={id}
-        className="theme-switcher__select"
-        value={preference}
-        onChange={(event) => setPreference(event.target.value as 'system' | 'light' | 'dark')}
-      >
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
-    </div>
+    <button
+      aria-label={buttonLabel}
+      className="theme-toggle"
+      onClick={() => {
+        if (hasMounted) {
+          setPreference(nextTheme);
+        }
+      }}
+      title={buttonLabel}
+      type="button"
+    >
+      <span className="sr-only">{buttonLabel}</span>
+      <span aria-hidden="true" className="theme-toggle__icon">
+        {hasMounted && isDark ? (
+          <svg className="h-full w-full" viewBox="0 0 24 24">
+            <path
+              d="M12 4V2m0 20v-2m8-8h2M2 12h2m14.36-6.36 1.42-1.42M4.22 19.78l1.42-1.42m0-12.72L4.22 4.22m15.56 15.56-1.42-1.42M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0Z"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            />
+          </svg>
+        ) : (
+          <svg className="h-full w-full" viewBox="0 0 24 24">
+            <path d="M21 14.2A7.5 7.5 0 0 1 9.8 3a8.8 8.8 0 1 0 11.2 11.2Z" fill="currentColor" />
+          </svg>
+        )}
+      </span>
+    </button>
   );
 }

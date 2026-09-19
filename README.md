@@ -168,6 +168,7 @@ Stores mutable application state optimized for querying.
 
 - Drafts
 - Proposals
+- Proposal comments
 - AI reports
 - Lore graph
 - Search index
@@ -189,6 +190,16 @@ Authentication flow:
 4. Create a secure session.
 
 Private keys are never stored. Authentication is entirely non-custodial.
+
+HiveLore supports Hive Keychain and HiveSigner through the same backend challenge-response flow. The API creates a short-lived, single-use, human-readable challenge containing the username, nonce, issued timestamp, expiration timestamp, configured audience, and a statement that signing does not authorize a Hive transaction or transfer. Users sign the exact challenge with posting authority. The backend verifies the signature against the account's current Hive posting authority from a trusted Hive RPC endpoint before creating or updating the local user projection.
+
+The current verifier supports a single posting public key whose configured key weight satisfies the account's posting threshold. Accounts requiring multiple posting signatures or delegated account authorities are not accepted by the login flow yet; that avoids falsely authenticating a key that cannot independently satisfy posting authority.
+
+Successful authentication issues a short-lived access JWT and a long-lived opaque refresh token. Refresh tokens are stored only as one-way HMAC hashes in PostgreSQL using a dedicated refresh-token secret, rotate on every successful refresh, and revoke the session family if a rotated token is reused. Browser refresh tokens are set in an `httpOnly` cookie and are not returned in JSON responses; access tokens are returned to the client for authenticated API requests. Authenticated API requests verify the access token session id against a non-revoked refresh session so logout invalidates already-issued access tokens. Logout is idempotent and revokes the submitted refresh session or session family when requested.
+
+HiveLore never requests, receives, logs, stores, or returns Hive posting, active, owner, or memo private keys. Login proves identity only. It does not grant the backend permission to publish content, vote, transfer funds, or perform any on-chain action for the user.
+
+Google authentication is an optional extension and is disabled by default. When disabled, Google routes return a not-enabled response and no Google environment variables are required. The schema includes Google identity-linking and provisioning state boundaries, but Google OAuth, automatic Hive account provisioning, and RC delegation are not part of the base MVP unless separately configured and implemented with a secure non-custodial key-delivery process.
 
 ---
 
@@ -232,6 +243,58 @@ Default MVP:
 - Voting restricted to contributors meeting minimum reputation requirements
 
 These rules provide basic protection against Sybil attacks while keeping governance simple.
+
+### Canon Voting MVP Rule
+
+Submitted contributions enter `VOTING` immediately with `votingStartedAt` set by the backend and
+`votingEndsAt = votingStartedAt + 48 hours`. The voting service never accepts client-supplied
+voter identity, role, tally, result, or authoritative timestamps. Authenticated world members with
+`VOTE_ON_PROPOSAL` may cast one vote per proposal and may change that vote only before
+`votingEndsAt`.
+
+Supported choices are `APPROVE`, `REJECT`, `NEEDS_REVISION`, and `ALTERNATE_TIMELINE`.
+`totalVotes` counts all four choices. Approval arithmetic is exact integer basis points:
+`approvalNumerator = APPROVE`, `approvalDenominator = all four choices`, and
+`approvalPercentageBps = floor(APPROVE * 10000 / approvalDenominator)`, or `0` when the denominator
+is zero. `NEEDS_REVISION` and `ALTERNATE_TIMELINE` count toward both participation and the approval
+denominator.
+
+The MVP policy is centralized in `apps/api/src/lib/canon-voting-policy.ts`:
+
+- Minimum eligible internal votes: 5.
+- Approval threshold: 7000 basis points, so exactly 70% passes.
+- Voting window: 48 hours.
+- A proposal can pass only after the full window has ended.
+- Founder or author status never bypasses the rule.
+- A major AI warning remains attached and visible; it does not automatically reject a proposal.
+
+If the approval rule does not pass after the window closes, the deterministic terminal outcome is
+the plurality among `NEEDS_REVISION`, `ALTERNATE_TIMELINE`, and `REJECT`; ties resolve in that order.
+If no failed-outcome choice has votes, the result is `REJECTED`. If the proposal's recorded base canon
+version is stale at decision time, the outcome is `STALE_BASE_CONFLICT` and the proposal is surfaced
+as needing revision instead of silently applying to newer canon.
+
+Finalization creates one immutable `ProposalDecision` snapshot with per-choice counts, threshold
+version, content hash, AI-warning state, branch/conflict metadata, and a deterministic decision
+payload hash. Passing governance sets the proposal to `APPROVED_FOR_PUBLICATION`; it does not make a
+`LoreEntry` `PUBLISHED_CANON`. Published canon still requires a separately confirmed Hive lore
+post/comment and indexed `HiveReference`.
+
+Approved decisions use a non-custodial Hive signing handoff. The API returns an unsigned posting
+authority `custom_json` operation with HiveLore's stable custom JSON id (`hivelore`), schema version,
+world ID, proposal ID, content hash, outcome, timestamps, tally, thresholds, AI-warning state, and
+branch/base-canon references. The contributor signs and broadcasts through Hive Keychain or
+HiveSigner; HiveLore never requests or stores private keys.
+
+When a client reports broadcast details, the backend retrieves the operation through the configured
+HAF/Hive indexing abstraction and verifies confirmation, operation type, custom JSON id, posting
+signer, world/proposal/decision IDs, frozen tally/payload hash, timestamps, and duplicate operation
+state before linking the result to `HiveEvent` and `ProposalDecision` idempotently.
+
+Branching metadata keeps alternate continuations readable without deleting competing branches.
+Alternate-timeline decisions are excluded from canon-only projections; canonizing one branch does not
+remove other branches, which can later be revised, archived, merged, or retained under moderation
+permissions.
 
 ## Hive Voting
 
@@ -296,6 +359,42 @@ REST API modules:
 - Search
 - Profiles
 - Moderation
+
+Implemented authentication endpoints:
+
+- `POST /auth/challenge`: accepts a Hive username and `keychain` or `hivesigner` provider, creates a five-minute challenge, and returns only the challenge ID, exact message, expiration, normalized Hive username, and provider.
+- `POST /auth/verify`: accepts the challenge ID, username, provider, exact message, signature, and optional public key, verifies posting authority through Hive RPC, consumes the challenge, upserts the user projection, returns an access token, and sets the refresh cookie.
+- `POST /auth/refresh`: validates the opaque refresh token from the `httpOnly` cookie or request body, checks trusted browser origins for cookie-based refreshes, rotates it, revokes the previous token, returns a new access token, and revokes the session family on reuse detection.
+- `POST /auth/logout`: revokes the current refresh session or session family when requested and clears the refresh cookie. Repeated logout is safe.
+- `GET /me`: requires a valid access JWT and returns the safe canonical Hive-linked user representation.
+
+Auth challenge, verification, and refresh endpoints use Fastify rate limiting backed by PostgreSQL buckets so limits are shared across API instances. Set `TRUST_PROXY=true` on deployments that run behind a trusted proxy or load balancer so client IPs are resolved from trusted forwarding headers.
+
+Google auth routes are not registered as a default login path. With `GOOGLE_AUTH_ENABLED=false`, `/auth/google/*` returns a not-enabled response. Enabling Google currently exposes the guarded boundary only; Google OAuth account linking and automatic Hive provisioning remain deferred until secure non-custodial account creation and key delivery are specified.
+
+Implemented world endpoints:
+
+- `POST /worlds`: requires authentication, creates a mutable off-chain World Seed and initial `WorldBibleVersion` in one transaction, and assigns the authenticated user an active `FOUNDER` membership. The route never accepts a client-supplied founder or role and does not publish to Hive.
+- `GET /worlds`: browses discoverable worlds with pagination and basic title/description, genre, and tone filters.
+- `GET /worlds/:worldId`: returns one world with its founder, seed, and current latest World Bible version.
+- `GET /worlds/:worldId/hub`: returns the World Hub aggregate for the frontend, including world seed, current bible preview, simple canon/proposal stats, and latest canon lore entry summaries.
+- `PATCH /worlds/:worldId`: requires `EDIT_INITIAL_CANON` world permission and updates mutable off-chain world title/description, seed, and latest initial bible content only. It does not create proposals, canonize content, or publish to Hive.
+
+Implemented contribution endpoints:
+
+- `POST /worlds/:worldId/contributions`: requires authentication and `CREATE_LORE_DRAFT` world permission, creates an author-owned structured contribution draft for lore or story content, and optionally links it to a lore entry in the same world.
+- `GET /worlds/:worldId/contributions`: requires authentication and lists only the authenticated writer's contributions in the world with page/pageSize pagination and optional status/kind filters.
+- `GET /worlds/:worldId/contributions/:contributionId`: returns an authenticated writer's own contribution draft or submitted contribution without exposing other writers' private drafts.
+- `PATCH /worlds/:worldId/contributions/:contributionId`: requires `EDIT_OWN_DRAFT`, updates only mutable draft fields, and rejects submitted contributions.
+- `DELETE /worlds/:worldId/contributions/:contributionId`: requires `EDIT_OWN_DRAFT`, deletes only draft contributions, and never deletes submitted proposals.
+- `POST /worlds/:worldId/contributions/:contributionId/submit`: requires `SUBMIT_PROPOSAL`, atomically locks the draft, creates exactly one submitted proposal with an immutable `proposedContent` snapshot, and does not publish to Hive.
+
+Implemented proposal discussion endpoints:
+
+- `GET /worlds/:worldId/proposals/:proposalId/comments`: lists flat chronological off-chain proposal comments with cursor pagination. The proposal must belong to the route world. Deleted comments are returned as tombstones without the original body.
+- `POST /worlds/:worldId/proposals/:proposalId/comments`: requires authentication and the existing `VOTE_ON_PROPOSAL` world permission, derives the author from the verified session, trims plain-text body content, enforces a 3,000-character maximum, and rate-limits comment writes to 5 per verified user per minute by default.
+
+Proposal comments are stored in PostgreSQL as mutable discussion records. They are not Hive comments, not immutable canon records, and never count as AppVote rows, approval totals, proposal outcomes, reputation, rewards, or canon status. Soft deletion preserves the discussion audit shape while normal API responses hide moderated comment bodies. Comment write rate limits use the existing PostgreSQL-backed Fastify rate-limit store in the API app, so limits are shared across API instances that use the same database.
 
 ---
 
@@ -458,11 +557,56 @@ DATABASE_URL="postgresql://USER:PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=tru
 
 # Direct PostgreSQL connection used for Prisma migrations and administrative operations.
 DIRECT_URL="postgresql://USER:PASSWORD@DIRECT_HOST:5432/postgres"
+
+# Hive authentication and secure session settings.
+AUTH_JWT_SECRET="replace-with-a-long-random-secret"
+AUTH_REFRESH_SECRET="replace-with-a-different-long-random-secret"
+AUTH_JWT_ISSUER="hivelore"
+AUTH_JWT_AUDIENCE="hivelore-web"
+AUTH_ACCESS_TOKEN_TTL_SECONDS=900
+AUTH_REFRESH_TOKEN_TTL_SECONDS=1209600
+AUTH_CHALLENGE_TTL_SECONDS=300
+AUTH_COOKIE_DOMAIN=
+AUTH_COOKIE_SECURE=true
+HIVE_AUTH_AUDIENCE="hivelore-local-api"
+ERROR_TRACKING_ENABLED=false
+ERROR_TRACKING_WEBHOOK_URL=
+
+# Hive integration defaults to public development endpoints.
+HIVE_RPC_URL="https://api.hive.blog"
+HAF_API_URL="https://api.hive.blog/hafbe-api"
+HIVELORE_APP_ID="hivelore/0.1.0"
+HIVE_MAINNET_CHAIN_ID="beeab0de00000000000000000000000000000000000000000000000000000000"
+HIVE_MAINNET_RPC_NODES="https://api.hive.blog"
+HIVE_MAINNET_HAF_URL="https://api.hive.blog/hafbe-api"
+HIVE_BROADCAST_MAX_ATTEMPTS=4
+HIVE_BROADCAST_INITIAL_DELAY_MS=500
+HIVE_BROADCAST_MAX_DELAY_MS=5000
+HIVE_BROADCAST_BACKOFF_MULTIPLIER=2
+HIVE_BROADCAST_JITTER_RATIO=0.2
+HIVE_BROADCAST_TIMEOUT_MS=10000
+HIVE_BROADCAST_TOTAL_DEADLINE_MS=90000
+HIVE_CONFIRMATION_POLL_INTERVAL_MS=3000
+HIVE_CONFIRMATION_TIMEOUT_MS=60000
+HIVE_NODE_MAX_CONSECUTIVE_FAILURES=1
+HIVE_NODE_COOLDOWN_MS=30000
+
+# Optional Google-to-Hive linking and onboarding. Disabled for the base MVP.
+GOOGLE_AUTH_ENABLED=false
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=
+GOOGLE_HIVE_PROVISIONING_ENABLED=false
+
+# Optional RC delegation. Disabled for the base MVP.
+HIVE_RC_DELEGATION_ENABLED=false
+HIVE_RC_DELEGATOR_ACCOUNT=
+HIVE_RC_DELEGATION_AMOUNT=
 ```
 
 `DATABASE_URL` is the pooled connection used by normal API queries. `DIRECT_URL` is the direct PostgreSQL connection Prisma uses for migrations and administrative operations. Supabase service-role keys are not required for Prisma's PostgreSQL connection. Hive private keys must never be stored.
 
-Use separate credentials and databases for development and production. Do not reset a shared development database without team coordination.
+Use separate credentials and databases for development and production. Any internet-facing API environment, including shared development hosts, must set long random `AUTH_JWT_SECRET` and `AUTH_REFRESH_SECRET` values and `AUTH_COOKIE_SECURE=true`. Deployments behind a trusted proxy or load balancer must set `TRUST_PROXY=true`. Do not reset a shared development database without team coordination.
 
 ### Supabase Setup
 
@@ -525,6 +669,29 @@ Review generated SQL under `apps/api/prisma/migrations`, commit the schema and m
 
 Feature branches must include migration files. Resolve migration conflicts before merge.
 
+### Baseline Migration History
+
+`20260718131500_init_hivelore_schema` is the authoritative Prisma baseline. A later historical migration, `20260718154842_init`, accidentally duplicated the same baseline SQL and caused fresh PostgreSQL databases to fail during `prisma migrate deploy` when the second migration tried to recreate enums, tables, indexes, and foreign keys that already existed.
+
+The duplicate migration directory is intentionally retained, but its SQL body is a no-op. This preserves the historical migration name while allowing a new developer, CI job, preview environment, or empty hosted database to run:
+
+```bash
+npm run db:migrate:deploy
+npm run db:generate
+```
+
+Existing databases that already recorded both baseline migrations do not need data changes before deploying this repository repair. Prisma may warn that `20260718154842_init` was modified after it was applied because the stored checksum reflects the old duplicate SQL. That warning is expected for those environments; do not reset or recreate the database to clear it. If an environment is blocked by a failed `20260718154842_init` row after the duplicate SQL already created the baseline objects, inspect `_prisma_migrations` and the actual schema first, then run `npx prisma migrate resolve --rolled-back 20260718154842_init --schema apps/api/prisma/schema.prisma` before `npm run db:migrate:deploy`. If an environment has only the first baseline recorded, the retained no-op second migration can be applied normally.
+
+CI validates the full migration history against a disposable PostgreSQL database with:
+
+```bash
+TEST_DATABASE_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres npm run db:migrate:check:fresh
+```
+
+The check creates a uniquely named `hivelore_migrate_check_*` database, runs `prisma migrate deploy` twice, compares the deployed schema with `schema.prisma`, generates Prisma Client, runs the development seed, smoke-checks representative tables/enums/constraints/indexes, and drops only the generated disposable database.
+
+CI also validates the upgrade path from `develop` with `npm run db:migrate:check:upgrade`. That job deploys the base branch migration history into a disposable PostgreSQL database, applies the documented `20260718154842_init` recovery when needed, deploys this branch's repaired migrations, checks for schema drift, and drops the disposable database.
+
 ### Seed Behavior
 
 The seed at `apps/api/prisma/seed.ts` is development-only and contains fictional Hive usernames, world content, lore, one lore relationship, one submitted proposal, and an advisory AI report. It does not seed real people, credentials, Hive private keys, real blockchain transactions, or financial payout projections.
@@ -532,6 +699,73 @@ The seed at `apps/api/prisma/seed.ts` is development-only and contains fictional
 ### On-chain Boundary
 
 Hive is authoritative for on-chain publication, authorship, rewards, beneficiary metadata, and blockchain events. `HiveReference`, `HiveEvent`, `RewardRecord`, and `UserRewardSummary` are indexed or derived database projections. A local PostgreSQL flag or timestamp is never sufficient to prove canon; canon requires an approved publication that has been published to Hive and indexed by HiveLore.
+
+All backend Hive access goes through `apps/api/src/lib/hive`. The module uses `@hiveio/wax` for transaction build, serialization, signing handoff, and broadcast; it exposes signer abstractions for Hive Keychain and HiveSigner flows without storing private keys. HAF reads use the configurable read-only `HAF_API_URL` client and are normalized before projection into PostgreSQL. The initial default is Hive's public HAF Block Explorer endpoint, using documented HAFBE paths such as `/last-synced-block`, `/block-search`, and `/accounts/{account}/operations/comments/{permlink}`; self-hosted HAF remains deferred.
+
+### Hive Network And Broadcast Reliability
+
+HiveLore is mainnet-only. It uses chain ID `beeab0de00000000000000000000000000000000000000000000000000000000`, address prefix `STM`, and the configured `HIVE_MAINNET_RPC_NODES`. The network config is built as one unit with chain ID, node list, HAF/indexer URL, address prefix, custom JSON ID, and transaction expiration policy. Empty node lists, malformed chain IDs, non-mainnet chain IDs, credential-bearing node URLs, and non-HTTPS production nodes fail startup validation.
+
+Backend-controlled broadcasts go through the typed reliability layer in `apps/api/src/lib/hive/broadcast-reliability.ts`. It broadcasts only already-signed transactions, never asks for private keys, and preserves the submitted transaction ID across retries. Transient RPC failures use bounded exponential backoff with jitter and node rotation; permanent transaction rejections such as invalid signatures, insufficient authority, malformed operations, expired transactions, and insufficient Resource Credits fail fast without rotating through every node. Ambiguous outcomes, including a timeout after a node may have accepted a transaction, enter confirmation polling before any retry and retry only the exact same signed transaction when still safe.
+
+An RPC broadcast acknowledgment is not confirmation. For the MVP, "confirmed" means included in a Hive block and located through HAF or a compatible indexing/read-back path; this is weaker than last-irreversible-block finality and is reported as block inclusion. Confirmation verifies the transaction ID, operation index when known, HiveLore operation type, `custom_json` ID, posting signer, world/proposal/decision IDs, and frozen payload hash before persistence. Client-supplied block numbers and timestamps are treated only as lookup hints; PostgreSQL state changes use chain/read-back data. Confirmation time is application time after verification, while blockchain timestamp comes from the block/indexer row.
+
+Successful confirmed broadcasts return a structured result containing the network, transaction ID, block number, operation indexes, blockchain timestamp, confirmation time, confirmation source, sanitized node URL when applicable, and attempt count. Timeouts return an unknown or delayed-confirmation state; they must be reconciled by retrying confirmation for the same transaction ID, not by creating a different transaction.
+
+### Hive Smoke Tests
+
+Mainnet smoke test:
+
+1. Build the harmless HiveLore `custom_json` operation with ID `hivelore_smoke`.
+2. Use posting authority only: `required_auths` must be empty and `required_posting_auths` must contain the signing account. If active or owner authority is requested, treat it as a bug and stop.
+3. Use this exact JSON payload, which contains no personal data or secrets:
+
+```json
+{
+  "app": "hivelore",
+  "type": "mainnet_smoke",
+  "version": 1,
+  "purpose": "broadcast_readback_verification"
+}
+```
+
+4. Sign from the local process environment only. Never hardcode, print, persist, or commit a Hive private key.
+5. Broadcast through the existing WAX client and reliability broadcaster, preserving multi-node RPC failover.
+6. Confirm through `condenser_api.get_transaction`, verify transaction ID, signer, `custom_json` ID, posting authority, and payload, then read `block_num` from that transaction.
+7. Call `condenser_api.get_block_header(block_num)` and use that header timestamp as the blockchain timestamp. Never use transaction expiration as the blockchain timestamp.
+8. Print only the transaction ID, block number, block timestamp, RPC node used, and pass/fail verification summary after the irreversible broadcast.
+
+Run the real smoke test only after reviewing the account and permanence warning:
+
+```powershell
+$env:HIVE_SMOKE_ACCOUNT = "<your-hive-account>"
+$env:HIVE_SMOKE_POSTING_KEY = "<your-posting-private-key>"
+npm run smoke:hive-mainnet
+```
+
+The command prompts for `BROADCAST HIVELORE SMOKE` immediately before broadcasting. Mainnet smoke tests must not be run without explicit approval of the account, exact operation, and expected permanence.
+
+### Standalone HAF Indexer
+
+The API workspace includes a resumable HAF sync skeleton. It reads HAF block-search pages, projects supported HiveLore operations into `HiveEvent`, and stores its durable resume point in `IndexerWatermark`.
+
+```bash
+npm run indexer:run --workspace=@hivelore/api
+```
+
+Optional API environment variables:
+
+```env
+INDEXER_NAME=hivelore-haf
+INDEXER_START_BLOCK=1
+INDEXER_BATCH_SIZE=100
+INDEXER_MAX_BLOCKS_PER_RUN=1000
+INDEXER_MAX_READY_LAG_BLOCKS=1200
+```
+
+Run `npm run db:generate` after pulling schema changes, then apply the committed Prisma migrations before running it against a real database.
+
+`GET /health` is the lightweight liveness endpoint. `GET /ready` verifies PostgreSQL connectivity and reports HAF indexer lag against `INDEXER_MAX_READY_LAG_BLOCKS`; it returns `503` when any dependency is degraded. API logs are structured JSON with an `x-request-id` request identifier, and `ERROR_TRACKING_ENABLED=true` posts unhandled error summaries to `ERROR_TRACKING_WEBHOOK_URL` without request headers or secret-bearing bodies.
 
 ## Run Locally
 
@@ -544,6 +778,7 @@ Local services:
 - Web: http://localhost:3000
 - API: http://localhost:3001
 - Health: http://localhost:3001/health
+- Readiness: http://localhost:3001/ready
 
 Run one application at a time:
 
@@ -640,7 +875,7 @@ hivelore/
 Directory roles:
 
 - `apps/web` is the only frontend application. It is a Next.js App Router scaffold.
-- `apps/api` is the only backend application. It is a Fastify TypeScript scaffold with `GET /health`.
+- `apps/api` is the only backend application. It is a Fastify TypeScript API with liveness and readiness endpoints.
 - `apps/api/prisma` contains the canonical API Prisma schema, migrations, and development seed.
 - `packages` is reserved for shared workspace packages. `packages/config` is intentionally minimal until real shared configuration is needed.
 - `.github/workflows` contains CI checks for formatting, linting, type-checking, and builds.

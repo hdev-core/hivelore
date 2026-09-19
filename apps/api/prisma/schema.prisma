@@ -12,7 +12,9 @@ enum LoreType {
   CHARACTER
   LOCATION
   FACTION
+  QUEST
   EVENT
+  STORY
   ARTIFACT
   HISTORY
   RULE
@@ -29,8 +31,19 @@ enum LoreStatus {
 
 enum ProposalType {
   ADD_LORE
+  ADD_STORY
   UPDATE_LORE
   UPDATE_WORLD_BIBLE
+}
+
+enum ContributionKind {
+  LORE
+  STORY
+}
+
+enum ContributionStatus {
+  DRAFT
+  SUBMITTED
 }
 
 enum ProposalStatus {
@@ -39,6 +52,8 @@ enum ProposalStatus {
   VOTING
   APPROVED_FOR_PUBLICATION
   REJECTED
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
   PUBLISHED
   WITHDRAWN
 }
@@ -46,7 +61,17 @@ enum ProposalStatus {
 enum VoteChoice {
   APPROVE
   REJECT
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
   ABSTAIN
+}
+
+enum ProposalDecisionOutcome {
+  APPROVED_FOR_PUBLICATION
+  REJECTED
+  NEEDS_REVISION
+  ALTERNATE_TIMELINE
+  STALE_BASE_CONFLICT
 }
 
 enum AIReportStatus {
@@ -69,6 +94,7 @@ enum ModerationTargetType {
   LORE_ENTRY
   LORE_RELATIONSHIP
   PROPOSAL
+  PROPOSAL_COMMENT
   APP_VOTE
   AI_REPORT
   HIVE_REFERENCE
@@ -110,48 +136,289 @@ enum SearchEntityType {
   PROPOSAL
 }
 
+enum PlatformRole {
+  USER
+  ADMIN
+}
+
+enum WorldRole {
+  READER
+  CONTRIBUTOR
+  FOUNDER
+  CURATOR
+}
+
+enum WorldAuditAction {
+  ROLE_ASSIGNED
+  ROLE_CHANGED
+  ROLE_REMOVED
+  MODERATION_ACTION
+  CANON_STATUS_EXECUTED
+  AI_WARNING_RESOLVED
+  CONTRIBUTION_CREATED
+  CONTRIBUTION_UPDATED
+  CONTRIBUTION_DELETED
+  CONTRIBUTION_SUBMITTED
+  PROPOSAL_CREATED
+  CANON_DECISION_FINALIZED
+  CANON_DECISION_CONFIRMED
+  WORLD_BIBLE_UPDATED
+  LORE_ENTRY_CREATED
+  LORE_ENTRY_UPDATED
+  LORE_ENTRY_DELETED
+  LORE_RELATIONSHIP_CREATED
+  LORE_RELATIONSHIP_DELETED
+}
+
+enum AuthProvider {
+  KEYCHAIN
+  HIVESIGNER
+}
+
+enum ExternalIdentityProvider {
+  GOOGLE
+}
+
+enum HiveProvisioningStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  NOT_CONFIGURED
+}
+
+enum RcDelegationStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  NOT_CONFIGURED
+}
+
 model User {
-  id                     String                   @id @default(cuid())
-  hiveUsername           String                   @unique
-  normalizedHiveUsername String                   @unique
-  displayName            String?
-  avatarUrl              String?
-  bio                    String?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  foundedWorlds          World[]                  @relation("WorldFounder")
-  bibleVersions          WorldBibleVersion[]      @relation("WorldBibleVersionCreator")
-  loreEntries            LoreEntry[]              @relation("LoreEntryAuthor")
-  proposals              Proposal[]               @relation("ProposalAuthor")
-  votes                  AppVote[]                @relation("AppVoteVoter")
-  moderationReports      ModerationReport[]       @relation("ModerationReporter")
-  moderationReviews      ModerationReport[]       @relation("ModerationReviewer")
-  hiveReferences         HiveReference[]          @relation("HiveReferenceAuthor")
-  rewardRecords          RewardRecord[]
-  rewardSummaries        UserRewardSummary[]
-  reputationSnapshots    UserReputationSnapshot[]
+  id                      String                    @id @default(cuid())
+  hiveUsername            String                    @unique
+  normalizedHiveUsername  String                    @unique
+  displayName             String?
+  avatarUrl               String?
+  bio                     String?
+  platformRole            PlatformRole              @default(USER)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  foundedWorlds           World[]                   @relation("WorldFounder")
+  bibleVersions           WorldBibleVersion[]       @relation("WorldBibleVersionCreator")
+  loreEntries             LoreEntry[]               @relation("LoreEntryAuthor")
+  proposals               Proposal[]                @relation("ProposalAuthor")
+  proposalComments        ProposalComment[]         @relation("ProposalCommentAuthor")
+  deletedProposalComments ProposalComment[]         @relation("ProposalCommentDeleter")
+  contributionDrafts      ContributionDraft[]       @relation("ContributionDraftAuthor")
+  votes                   AppVote[]                 @relation("AppVoteVoter")
+  moderationReports       ModerationReport[]        @relation("ModerationReporter")
+  moderationReviews       ModerationReport[]        @relation("ModerationReviewer")
+  hiveReferences          HiveReference[]           @relation("HiveReferenceAuthor")
+  rewardRecords           RewardRecord[]
+  rewardSummaries         UserRewardSummary[]
+  reputationSnapshots     UserReputationSnapshot[]
+  worldMemberships        WorldMembership[]         @relation("WorldMembershipUser")
+  grantedWorldMemberships WorldMembership[]         @relation("WorldMembershipGrantor")
+  worldAuditLogs          WorldAuditLog[]           @relation("WorldAuditLogActor")
+  authChallenges          AuthChallenge[]
+  refreshSessions         RefreshSession[]
+  externalIdentityLinks   ExternalIdentityLink[]
+  provisioningRequests    HiveProvisioningRequest[]
+  rcDelegations           RcDelegation[]
 
   @@index([normalizedHiveUsername])
+  @@index([platformRole])
+}
+
+model AuthChallenge {
+  id                     String       @id @default(cuid())
+  userId                 String?
+  user                   User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  normalizedHiveUsername String
+  provider               AuthProvider
+  intent                 String       @default("authentication")
+  challengeHash          String
+  nonceHash              String
+  issuedAt               DateTime
+  expiresAt              DateTime
+  consumedAt             DateTime?
+  createdAt              DateTime     @default(now())
+
+  @@unique([challengeHash])
+  @@index([normalizedHiveUsername, provider])
+  @@index([expiresAt])
+  @@index([consumedAt])
+  @@index([userId])
+}
+
+model RefreshSession {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionFamilyId  String
+  refreshTokenHash String          @unique
+  createdAt        DateTime        @default(now())
+  expiresAt        DateTime
+  rotatedAt        DateTime?
+  revokedAt        DateTime?
+  replacedById     String?         @unique
+  replacedBy       RefreshSession? @relation("RefreshSessionRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces         RefreshSession? @relation("RefreshSessionRotation")
+  lastUsedAt       DateTime?
+  userAgent        String?
+  ipAddress        String?
+
+  @@index([userId])
+  @@index([sessionFamilyId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+model AuthRateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model ExternalIdentityLink {
+  id                   String                    @id @default(cuid())
+  userId               String
+  user                 User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider             ExternalIdentityProvider
+  providerSubject      String
+  verifiedEmail        String?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  provisioningRequests HiveProvisioningRequest[]
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model HiveProvisioningRequest {
+  id                     String                 @id @default(cuid())
+  userId                 String?
+  user                   User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  externalIdentityLinkId String?
+  externalIdentityLink   ExternalIdentityLink?  @relation(fields: [externalIdentityLinkId], references: [id], onDelete: SetNull)
+  requestedHiveUsername  String
+  status                 HiveProvisioningStatus @default(NOT_CONFIGURED)
+  failureReason          String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  @@index([userId])
+  @@index([externalIdentityLinkId])
+  @@index([status])
+}
+
+model RcDelegation {
+  id               String             @id @default(cuid())
+  userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hiveUsername     String
+  delegatorAccount String
+  amount           String
+  status           RcDelegationStatus @default(NOT_CONFIGURED)
+  transactionId    String?
+  operationIndex   Int?
+  idempotencyKey   String             @unique
+  failureReason    String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([hiveUsername])
+  @@index([status])
 }
 
 model World {
-  id                String              @id @default(cuid())
-  slug              String              @unique
-  title             String
-  description       String
-  founderId         String
-  founder           User                @relation("WorldFounder", fields: [founderId], references: [id], onDelete: Restrict)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  bibleVersions     WorldBibleVersion[]
-  loreEntries       LoreEntry[]
-  loreRelationships LoreRelationship[]
-  proposals         Proposal[]
-  moderationReports ModerationReport[]
-  searchIndexes     SearchIndex[]
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  title              String
+  description        String
+  founderId          String
+  founder            User                @relation("WorldFounder", fields: [founderId], references: [id], onDelete: Restrict)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  seed               WorldSeed?
+  bibleVersions      WorldBibleVersion[]
+  loreEntries        LoreEntry[]
+  loreRelationships  LoreRelationship[]
+  proposals          Proposal[]
+  contributionDrafts ContributionDraft[]
+  moderationReports  ModerationReport[]
+  searchIndexes      SearchIndex[]
+  memberships        WorldMembership[]
+  auditLogs          WorldAuditLog[]
 
   @@index([founderId])
   @@index([createdAt])
+}
+
+model WorldSeed {
+  id                   String   @id @default(cuid())
+  worldId              String   @unique
+  world                World    @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  premise              String
+  genre                String
+  tone                 String
+  mainConflict         String
+  startingLocation     String?
+  firstCharacters      Json?
+  firstFactions        Json?
+  firstHistoricalEvent String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  /// Mutable off-chain world seed. Hive publication requires a future approved publication flow.
+
+  @@index([genre])
+  @@index([tone])
+}
+
+model WorldMembership {
+  id          String    @id @default(cuid())
+  worldId     String
+  world       World     @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  userId      String
+  user        User      @relation("WorldMembershipUser", fields: [userId], references: [id], onDelete: Restrict)
+  role        WorldRole
+  grantedById String?
+  grantedBy   User?     @relation("WorldMembershipGrantor", fields: [grantedById], references: [id], onDelete: SetNull)
+  grantedAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([worldId, userId])
+  @@index([worldId, role])
+  @@index([userId, role])
+  @@index([grantedById])
+  @@index([revokedAt])
+}
+
+model WorldAuditLog {
+  id         String           @id @default(cuid())
+  worldId    String
+  world      World            @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  actorId    String?
+  actor      User?            @relation("WorldAuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     WorldAuditAction
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime         @default(now())
+  /// Append-only audit trail for role changes, moderation actions, and rule-based status execution.
+
+  @@index([worldId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([worldId, action, createdAt])
+  @@index([targetType, targetId])
 }
 
 model WorldBibleVersion {
@@ -177,30 +444,32 @@ model WorldBibleVersion {
 }
 
 model LoreEntry {
-  id                 String             @id @default(cuid())
-  worldId            String
-  world              World              @relation(fields: [worldId], references: [id], onDelete: Restrict)
-  authorId           String
-  author             User               @relation("LoreEntryAuthor", fields: [authorId], references: [id], onDelete: Restrict)
-  title              String
-  slug               String
-  loreType           LoreType
-  content            Json
-  status             LoreStatus         @default(DRAFT)
-  publishedAt        DateTime?
-  hiveReferenceId    String?            @unique
+  id                       String              @id @default(cuid())
+  worldId                  String
+  world                    World               @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  authorId                 String
+  author                   User                @relation("LoreEntryAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  title                    String
+  slug                     String
+  loreType                 LoreType
+  content                  Json
+  status                   LoreStatus          @default(DRAFT)
+  publishedAt              DateTime?
+  hiveReferenceId          String?             @unique
   /// Published canon must be confirmed through an indexed HiveReference, not only this mutable row.
-  hiveReference      HiveReference?     @relation(fields: [hiveReferenceId], references: [id], onDelete: SetNull)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  outgoingRelations  LoreRelationship[] @relation("LoreRelationshipSource")
-  incomingRelations  LoreRelationship[] @relation("LoreRelationshipTarget")
-  targetProposals    Proposal[]         @relation("ProposalTargetLoreEntry")
-  resultingProposals Proposal[]         @relation("ProposalResultingLoreEntry")
+  hiveReference            HiveReference?      @relation(fields: [hiveReferenceId], references: [id], onDelete: SetNull)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  outgoingRelations        LoreRelationship[]  @relation("LoreRelationshipSource")
+  incomingRelations        LoreRelationship[]  @relation("LoreRelationshipTarget")
+  targetProposals          Proposal[]          @relation("ProposalTargetLoreEntry")
+  targetContributionDrafts ContributionDraft[] @relation("ContributionDraftTargetLoreEntry")
+  resultingProposals       Proposal[]          @relation("ProposalResultingLoreEntry")
 
   @@unique([worldId, slug])
   @@index([worldId, status])
   @@index([worldId, loreType])
+  @@index([worldId, updatedAt, id])
   @@index([authorId])
 }
 
@@ -222,6 +491,8 @@ model LoreRelationship {
   @@index([worldId])
   @@index([sourceId])
   @@index([targetId])
+  @@index([sourceId, updatedAt, id])
+  @@index([targetId, updatedAt, id])
 }
 
 model Proposal {
@@ -231,6 +502,7 @@ model Proposal {
   authorId                String
   author                  User               @relation("ProposalAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   proposalType            ProposalType
+  contributionKind        ContributionKind?
   status                  ProposalStatus     @default(DRAFT)
   title                   String
   summary                 String
@@ -243,17 +515,79 @@ model Proposal {
   resultingBibleVersion   WorldBibleVersion? @relation("ProposalResultingBibleVersion", fields: [resultingBibleVersionId], references: [id], onDelete: SetNull)
   submittedAt             DateTime?
   votingStartedAt         DateTime?
+  votingEndsAt            DateTime?
+  decidedAt               DateTime?
   approvedAt              DateTime?
   rejectedAt              DateTime?
   publishedAt             DateTime?
+  contentHash             String?
+  aiWarningAcknowledgedAt DateTime?
+  baseCanonVersionId      String?
+  branchParentProposalId  String?
+  branchBaseLoreEntryId   String?
+  branchLabel             String?
+  conflictMetadata        Json?
+  staleBaseAtDecision     Boolean            @default(false)
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
+  contributionDraft       ContributionDraft?
   votes                   AppVote[]
+  decision                ProposalDecision?
   aiReports               AIReport[]
   moderationReports       ModerationReport[]
+  comments                ProposalComment[]
 
   @@index([worldId, status])
   @@index([authorId])
+  @@index([worldId, contributionKind])
+  @@index([targetLoreEntryId])
+  @@index([votingEndsAt])
+  @@index([baseCanonVersionId])
+  @@index([branchBaseLoreEntryId])
+}
+
+model ProposalComment {
+  id          String    @id @default(cuid())
+  proposalId  String
+  proposal    Proposal  @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  authorId    String
+  author      User      @relation("ProposalCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body        String    @db.VarChar(3000)
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?     @relation("ProposalCommentDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  /// Off-chain plain-text discussion. Comments never count as AppVote rows or canon decisions.
+
+  @@index([proposalId, createdAt, id])
+  @@index([authorId, createdAt])
+  @@index([deletedById])
+}
+
+model ContributionDraft {
+  id                String             @id @default(cuid())
+  worldId           String
+  world             World              @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  authorId          String
+  author            User               @relation("ContributionDraftAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  targetLoreEntryId String?
+  targetLoreEntry   LoreEntry?         @relation("ContributionDraftTargetLoreEntry", fields: [targetLoreEntryId], references: [id], onDelete: SetNull)
+  kind              ContributionKind
+  title             String
+  summary           String?
+  content           Json
+  status            ContributionStatus @default(DRAFT)
+  proposalId        String?            @unique
+  /// Submitted drafts are locked; Proposal.proposedContent stores the immutable reviewer snapshot.
+  proposal          Proposal?          @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  submittedAt       DateTime?
+
+  @@index([worldId])
+  @@index([authorId])
+  @@index([worldId, status])
+  @@index([worldId, authorId, status])
   @@index([targetLoreEntryId])
 }
 
@@ -273,6 +607,55 @@ model AppVote {
   @@unique([proposalId, voterId])
   @@index([proposalId])
   @@index([voterId])
+}
+
+model ProposalDecision {
+  id                     String                  @id @default(cuid())
+  proposalId             String                  @unique
+  proposal               Proposal                @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  outcome                ProposalDecisionOutcome
+  decidedAt              DateTime
+  rulesVersion           String
+  payloadSchemaVersion   Int
+  minimumVotes           Int
+  approvalThresholdBps   Int
+  votingWindowHours      Int
+  approveCount           Int
+  rejectCount            Int
+  needsRevisionCount     Int
+  alternateTimelineCount Int
+  totalVotes             Int
+  approvalNumerator      Int
+  approvalDenominator    Int
+  approvalPercentageBps  Int
+  aiWarningAcknowledged  Boolean                 @default(false)
+  aiWarningSummary       String?
+  baseCanonVersionId     String?
+  branchParentProposalId String?
+  branchBaseLoreEntryId  String?
+  branchLabel            String?
+  conflictMetadata       Json?
+  staleBaseAtDecision    Boolean                 @default(false)
+  contentHash            String
+  decisionPayload        Json
+  decisionPayloadHash    String                  @unique
+  customJsonId           String?
+  expectedSigner         String?
+  hiveEventId            String?                 @unique
+  hiveEvent              HiveEvent?              @relation(fields: [hiveEventId], references: [id], onDelete: SetNull)
+  transactionId          String?
+  blockNumber            BigInt?
+  operationIndex         Int?
+  blockchainTimestamp    DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([transactionId, operationIndex])
+  @@index([outcome])
+  @@index([decidedAt])
+  @@index([customJsonId])
+  @@index([baseCanonVersionId])
+  @@index([branchBaseLoreEntryId])
 }
 
 model AIReport {
@@ -351,22 +734,36 @@ model HiveReference {
 }
 
 model HiveEvent {
-  id                  String        @id @default(cuid())
+  id                  String            @id @default(cuid())
   blockNumber         BigInt
   transactionId       String
   operationIndex      Int
   eventType           HiveEventType
   blockchainTimestamp DateTime
   payload             Json
-  processedAt         DateTime      @default(now())
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  processedAt         DateTime          @default(now())
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  proposalDecision    ProposalDecision?
   /// Rebuildable indexed Hive operation; the blockchain remains authoritative.
 
   @@unique([transactionId, operationIndex])
   @@index([blockNumber, operationIndex])
   @@index([eventType])
   @@index([blockchainTimestamp])
+}
+
+model IndexerWatermark {
+  name                        String    @id
+  lastProcessedBlock          BigInt    @default(0)
+  lastProcessedOperationIndex Int       @default(-1)
+  lastRunStartedAt            DateTime?
+  lastRunFinishedAt           DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  /// Durable resume point for rebuildable indexer processes.
+
+  @@index([lastProcessedBlock, lastProcessedOperationIndex], map: "IndexerWatermark_lastProcessedBlock_lastProcessedOperationI_idx")
 }
 
 model RewardRecord {
@@ -425,18 +822,20 @@ model UserReputationSnapshot {
 }
 
 model SearchIndex {
-  id                String           @id @default(cuid())
+  id                String                   @id @default(cuid())
   worldId           String?
-  world             World?           @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  world             World?                   @relation(fields: [worldId], references: [id], onDelete: Cascade)
   entityType        SearchEntityType
   entityId          String
   title             String
   searchableContent String
+  searchVector      Unsupported("tsvector")?
   metadata          Json?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
   /// Derived PostgreSQL search projection for the MVP; rebuildable from source records.
 
   @@unique([entityType, entityId])
   @@index([worldId, entityType])
+  @@index([searchVector], type: Gin)
 }

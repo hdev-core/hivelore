@@ -1,4 +1,5 @@
 import { ApiError, type ApiErrorBody } from '@/lib/api/errors';
+import { env } from '@/lib/env';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type JsonBody = Record<string, unknown> | Array<unknown> | string | number | boolean | null;
@@ -7,16 +8,13 @@ type RequestOptions<TBody = JsonBody> = {
   body?: TBody | undefined;
   headers?: HeadersInit;
   signal?: AbortSignal | null;
+  timeoutMs?: number | null;
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 function getApiBaseUrl() {
-  if (!API_BASE_URL) {
-    throw new Error('NEXT_PUBLIC_API_BASE_URL is not configured.');
-  }
-
-  return API_BASE_URL;
+  return env.apiBaseUrl;
 }
 
 function buildUrl(path: string) {
@@ -25,6 +23,43 @@ function buildUrl(path: string) {
 
 function hasJsonBody(body: unknown): body is JsonBody {
   return body !== undefined;
+}
+
+function createTimeoutSignal(milliseconds: number) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(milliseconds);
+  }
+
+  const controller = new AbortController();
+  globalThis.setTimeout(() => controller.abort(), milliseconds);
+  return controller.signal;
+}
+
+function combineSignals(signals: AbortSignal[]): AbortSignal {
+  const activeSignals = signals.filter((signal) => !signal.aborted);
+
+  if (activeSignals.length !== signals.length) {
+    const controller = new AbortController();
+    const abortedSignal = signals.find((signal) => signal.aborted);
+    controller.abort(abortedSignal?.reason);
+    return controller.signal;
+  }
+
+  if (activeSignals.length === 1) {
+    return activeSignals[0]!;
+  }
+
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(activeSignals);
+  }
+
+  const controller = new AbortController();
+
+  for (const signal of activeSignals) {
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+
+  return controller.signal;
 }
 
 async function parseJsonResponse<TResponse>(response: Response) {
@@ -71,12 +106,20 @@ async function request<TResponse, TBody = JsonBody>(
   }
 
   const requestInit: RequestInit = {
+    credentials: 'include',
     method,
     headers,
   };
 
-  if (options.signal) {
-    requestInit.signal = options.signal;
+  const timeoutMs =
+    options.timeoutMs === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : options.timeoutMs;
+  const signals = [
+    ...(timeoutMs === null ? [] : [createTimeoutSignal(timeoutMs)]),
+    ...(options.signal ? [options.signal] : []),
+  ];
+
+  if (signals.length) {
+    requestInit.signal = combineSignals(signals);
   }
 
   if (hasJsonBody(options.body)) {

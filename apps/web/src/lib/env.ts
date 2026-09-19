@@ -1,4 +1,5 @@
 const rawApiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const rawGoogleAuthEnabled = process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED ?? 'false';
 
 export function parsePublicApiUrl(value: string): string {
   try {
@@ -17,4 +18,5 @@ export function parsePublicApiUrl(value: string): string {
 
 export const env = {
   apiBaseUrl: parsePublicApiUrl(rawApiUrl),
+  googleAuthEnabled: rawGoogleAuthEnabled === 'true',
 } as const;
